@@ -7,6 +7,10 @@ import {
   count,
   upper,
   reduce,
+  all,
+  any,
+  eq,
+  neq,
   $states,
 } from "../dsl/jsonata";
 import { emitStateMachine } from "../compiler/emit-asl";
@@ -43,6 +47,8 @@ type StatesInput = {
   params?: StatesParams;
   validation?: {
     valid?: boolean;
+    mode?: string;
+    source?: string;
   };
 };
 
@@ -110,6 +116,20 @@ export function isValidationOk() {
     const states = $states as { input: StatesInput };
     const validation = states.input.validation;
     return exists(validation) && validation.valid === true;
+  });
+}
+
+export function validationMode() {
+  return slot("example:Choice/validationMode", () => {
+    const states = $states as { input: StatesInput };
+    return (states.input.validation as any).mode;
+  });
+}
+
+export function validationSource() {
+  return slot("example:Choice/validationSource", () => {
+    const states = $states as { input: StatesInput };
+    return (states.input.validation as any).source;
   });
 }
 
@@ -215,6 +235,49 @@ export const exampleFlowWithJoin = stateMachine("ExampleFlowWithJoin")
     }),
   );
 
+export const exampleFlowWithConditionHelpers = stateMachine("ExampleFlowWithConditionHelpers")
+  .queryLanguage("JSONata")
+  .comment("Composes choice conditions with all(...), any(...), eq(...), and neq(...)")
+  .startWith(
+    pass("PrepareValidationContext")
+      .assign("validation", exampleSlot())
+      .content({
+        ok: true,
+        from: "PrepareValidationContext",
+      }),
+  )
+  .then(
+    choice("RouteComposedValidation")
+      .comment("Routes only when validation is ok, either strict or manually sourced, and not legacy sourced.")
+      .whenTrue(
+        all(
+          isValidationOk(),
+          any(
+            eq(validationMode(), "strict"),
+            eq(validationSource(), "manual"),
+          ),
+          neq(validationSource(), "legacy"),
+        ),
+        "PersistComposedValidation",
+      )
+      .otherwise("RejectComposedValidation"),
+  )
+  .then(
+    pass("PersistComposedValidation")
+      .content({
+        status: "persisted",
+        strategy: "composed_conditions",
+      })
+      .end(),
+  )
+  .then(
+    pass("RejectComposedValidation")
+      .content({
+        ok: false,
+        reason: "conditions_not_met",
+      })
+      .end(),
+  );
 
 export const exampleFlowWithSubflows = stateMachine("ExampleFlowWithSubflows")
   .queryLanguage("JSONata")
@@ -369,7 +432,63 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
       .end(),
   );
 
-export const exampleSlots = exampleSlot()
+export const exampleSlots = {
+  "example:Validate/param:validationExpr": `(
+  $bar := function(){ "BAR" };
+
+  $foo := function($x){ ("DEFAULT_" & $x) };
+
+  $u__default := function($x){ ("DEFAULT_" & $x) };
+
+  $u__foo_bar := function(){ "FOO_BAR" };
+
+  $EMPTY_OBJ := {};
+
+  $EMPTY_PARAMS := {};
+
+  $states := $states;
+
+  $coalesce := function($a,$b){ ($exists($a) ? $a : $b) };
+
+  $body := $coalesce($states.input.body, $EMPTY_OBJ);
+
+  $params := $coalesce($states.input.params, $EMPTY_PARAMS);
+
+  $pathParams := $coalesce($params.path, $EMPTY_OBJ);
+
+  $qs := $coalesce($params.querystring, $EMPTY_OBJ);
+
+  $schema := {"alias": {"type": "string", "required": true}, "slug": {"type": "string", "required": true}, "overrides": {"type": "object", "required": false}};
+
+  $schemaKeys := $keys($schema);
+
+  $payload := $merge([$qs, $pathParams, $body]);
+
+  $missing := $schemaKeys[$lookup($schema, $).required = true and not($exists($lookup($payload, $)))];
+
+  $clean := $reduce($schemaKeys, function($acc,$k){ (
+    $v := $lookup($payload, $k);
+    ($exists($v) ? $merge([$acc, {($k): $v}]) : $acc)
+  ) }, $EMPTY_OBJ);
+
+  $noteA := $bar();
+
+  $noteB := $foo("X");
+
+  $noteC := $u__foo_bar();
+
+  $noteD := $u__default("Y");
+
+  $numericPlus := (1 + 2);
+
+  $stringyPlus := ("A" & "B");
+
+  {"valid": ($count($missing) = 0), "input": $clean, "errors": {"missing": $missing}, "notes": {"noteA": $noteA, "noteB": $noteB, "noteC": $noteC, "noteD": $noteD}, "demoKey": ("ALIAS#" & $uppercase("visa")), "numericPlus": $numericPlus, "stringyPlus": $stringyPlus}
+)`,
+  "example:Choice/isValidationOk": `($exists($states.input.validation) and $states.input.validation.valid = true)`,
+  "example:Choice/validationMode": `($states.input.validation.mode)`,
+  "example:Choice/validationSource": `($states.input.validation.source)`,
+};
 
 export const exampleStateMachine = emitStateMachine(exampleFlow.build(), exampleSlots);
 
@@ -378,6 +497,11 @@ export const exampleStateMachineFromBuilder = exampleFlow.toDefinition(exampleSl
 
 export const exampleStateMachineWithJoin = emitStateMachine(
   exampleFlowWithJoin.build(),
+  exampleSlots,
+);
+
+export const exampleStateMachineWithConditionHelpers = emitStateMachine(
+  exampleFlowWithConditionHelpers.build(),
   exampleSlots,
 );
 

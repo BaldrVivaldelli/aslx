@@ -1,6 +1,6 @@
 import type { ChoiceNode, ChoiceRule } from "../dsl/choice";
-import type { JsonataSlot } from "../dsl/jsonata";
-import { isJsonataSlot } from "../dsl/jsonata";
+import type { JsonataLiteral, JsonataSlot, SyntheticJsonataExpression } from "../dsl/jsonata";
+import { isJsonataSlot, parseSyntheticExpressionSlotId } from "../dsl/jsonata";
 import type { StateMachineNode, StateMachineQueryLanguage } from "../dsl/state-machine";
 import type { PassAssignMap, PassContent, PassNode } from "../dsl/steps";
 import type { TaskArgumentValue, TaskNode } from "../dsl/task";
@@ -60,23 +60,46 @@ function stripJsonataFence(expr: string): string {
     .trim();
 }
 
-function resolveSlot(slot: JsonataSlot, slots: SlotRegistry): string {
-  const slotId = slot.__slotId;
+function renderLiteral(value: JsonataLiteral): string {
+  return JSON.stringify(value);
+}
 
-  if (slotId.startsWith("not(") && slotId.endsWith(")")) {
-    const innerId = slotId.slice(4, -1);
-    const innerExpr = slots[innerId];
-    if (!innerExpr) {
-      throw new Error(`Missing compiled slot for slotId: ${innerId}`);
-    }
-    return renderJsonataTemplate(`not(${stripJsonataFence(innerExpr)})`);
-  }
-
+function resolveCompiledSlotExpression(slotId: string, slots: SlotRegistry): string {
   const expr = slots[slotId];
   if (!expr) {
     throw new Error(`Missing compiled slot for slotId: ${slotId}`);
   }
-  return renderJsonataTemplate(stripJsonataFence(expr));
+  return `(${stripJsonataFence(expr)})`;
+}
+
+function renderSyntheticExpression(expr: SyntheticJsonataExpression, slots: SlotRegistry): string {
+  switch (expr.kind) {
+    case "slot":
+      return resolveCompiledSlotExpression(expr.slotId, slots);
+    case "literal":
+      return renderLiteral(expr.value);
+    case "not":
+      return `not(${renderSyntheticExpression(expr.operand, slots)})`;
+    case "and":
+      return `(${expr.operands.map((operand) => renderSyntheticExpression(operand, slots)).join(" and ")})`;
+    case "or":
+      return `(${expr.operands.map((operand) => renderSyntheticExpression(operand, slots)).join(" or ")})`;
+    case "eq":
+      return `(${renderSyntheticExpression(expr.left, slots)} = ${renderSyntheticExpression(expr.right, slots)})`;
+    case "neq":
+      return `(${renderSyntheticExpression(expr.left, slots)} != ${renderSyntheticExpression(expr.right, slots)})`;
+  }
+}
+
+function resolveSlot(slot: JsonataSlot, slots: SlotRegistry): string {
+  const slotId = slot.__slotId;
+  const synthetic = parseSyntheticExpressionSlotId(slotId);
+
+  if (synthetic) {
+    return renderJsonataTemplate(renderSyntheticExpression(synthetic, slots));
+  }
+
+  return renderJsonataTemplate(stripJsonataFence(resolveCompiledSlotExpression(slotId, slots)));
 }
 
 function resolveContentValue(value: PassContent, slots: SlotRegistry): unknown {

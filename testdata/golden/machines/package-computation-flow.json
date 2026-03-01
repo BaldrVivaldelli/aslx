@@ -9,9 +9,9 @@
       "Comment": "Loads the package definition from DynamoDB.",
       "Arguments": {
         "TableName": "${file(resources/index.json):tables.providers}",
-        "Key": "{% (\n  $states.input.pk_sk\n) %}"
+        "Key": "{% ((\n  $states.input.pk_sk\n)) %}"
       },
-      "Output": "{% (\n  $merge([$states.input, {\"query_result\": $states.result}])\n) %}",
+      "Output": "{% ((\n  $merge([$states.input, {\"query_result\": $states.result}])\n)) %}",
       "Next": "PreparePackageModules"
     },
     "PreparePackageModules": {
@@ -21,17 +21,17 @@
       "Arguments": {
         "FunctionName": "${file(resources/index.json):cross_lambdas.load_modules}",
         "Payload": {
-          "input": "{% (\n  $states.input\n) %}"
+          "input": "{% ((\n  $states.input\n)) %}"
         }
       },
-      "Output": "{% (\n  {\"input\": $states.result.Payload.input, \"items_found\": $states.result.Payload.items_found, \"all_modules_valid\": $states.result.Payload.all_modules_valid}\n) %}",
+      "Output": "{% ((\n  {\"input\": $states.result.Payload.input, \"items_found\": $states.result.Payload.items_found, \"all_modules_valid\": $states.result.Payload.all_modules_valid}\n)) %}",
       "Next": "ArePreparedModulesValid"
     },
     "ArePreparedModulesValid": {
       "Type": "Choice",
       "Choices": [
         {
-          "Condition": "{% (\n  ($states.input.all_modules_valid = true)\n) %}",
+          "Condition": "{% ((\n  ($states.input.all_modules_valid = true)\n)) %}",
           "Next": "ComputeMany"
         }
       ],
@@ -45,10 +45,10 @@
       "Arguments": {
         "FunctionName": "${file(resources/index.json):cross_lambdas.methods}",
         "Payload": {
-          "computeMany": "{% (\n  $states.input\n) %}"
+          "computeMany": "{% ((\n  $states.input\n)) %}"
         }
       },
-      "Output": "{% (\n  $states.result.Payload\n) %}",
+      "Output": "{% ((\n  $states.result.Payload\n)) %}",
       "Retry": [
         {
           "ErrorEquals": [

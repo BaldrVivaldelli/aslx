@@ -5,7 +5,7 @@
   "States": {
     "Echo": {
       "Type": "Pass",
-      "Output": "{% (\n  {\"body\": $states.input, \"statusCode\": 200}\n) %}",
+      "Output": "{% ((\n  {\"body\": $states.input, \"statusCode\": 200}\n)) %}",
       "End": true
     }
   }

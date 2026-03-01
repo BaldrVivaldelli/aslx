@@ -80,6 +80,32 @@ You can attach that to a graph with `stateMachine(...)`.
 
 ---
 
+## 2b) Choice condition helpers
+
+When a branch rule reads better as a composition of smaller predicates, use `all(...)`, `any(...)`, `eq(...)`, `neq(...)`, and `not(...)`.
+
+```ts
+import { and, eq, or } from "../dsl/jsonata";
+
+choice("RouteComposedValidation")
+  .whenTrue(
+    all(
+      isValidationOk(),
+      any(
+        eq(validationMode(), "strict"),
+        eq(validationSource(), "manual"),
+      ),
+      neq(validationSource(), "legacy"),
+    ),
+    "PersistComposedValidation",
+  )
+  .otherwise("RejectComposedValidation");
+```
+
+These helpers are resolved by the emitter and do not create extra compiled slots.
+
+---
+
 ## 3) Choice + subflow targets + nested choice + join
 
 When a branch needs multiple steps (or another decision), use `subflow(...)`.

@@ -4,6 +4,19 @@
 // They exist so developers can write "normal TS" and still get strong-ish DX.
 
 export type JsonataSlot = { __kind: "jsonata_slot"; __slotId: string };
+export type JsonataLiteral = string | number | boolean | null;
+export type JsonataConditionOperand = JsonataSlot | JsonataLiteral;
+
+export type SyntheticJsonataExpression =
+  | { kind: "slot"; slotId: string }
+  | { kind: "literal"; value: JsonataLiteral }
+  | { kind: "not"; operand: SyntheticJsonataExpression }
+  | { kind: "and"; operands: SyntheticJsonataExpression[] }
+  | { kind: "or"; operands: SyntheticJsonataExpression[] }
+  | { kind: "eq"; left: SyntheticJsonataExpression; right: SyntheticJsonataExpression }
+  | { kind: "neq"; left: SyntheticJsonataExpression; right: SyntheticJsonataExpression };
+
+const SYNTHETIC_SLOT_PREFIX = "__jsonata_expr__:";
 
 // Used only so the compiler can detect slots in the AST.
 export function __slot(slotId: string): string {
@@ -29,17 +42,114 @@ export function slot<T>(slotId: string, fn: () => T): JsonataSlot {
   return toJsonata(fn, __slot(slotId));
 }
 
+function encodeSyntheticExpression(expr: SyntheticJsonataExpression): JsonataSlot {
+  const payload = Buffer.from(JSON.stringify(expr)).toString("base64url");
+  return {
+    __kind: "jsonata_slot",
+    __slotId: `${SYNTHETIC_SLOT_PREFIX}${payload}`,
+  };
+}
+
+export function parseSyntheticExpressionSlotId(slotId: string): SyntheticJsonataExpression | undefined {
+  if (!slotId.startsWith(SYNTHETIC_SLOT_PREFIX)) return undefined;
+
+  const payload = slotId.slice(SYNTHETIC_SLOT_PREFIX.length);
+  try {
+    const decoded = Buffer.from(payload, "base64url").toString("utf8");
+    return JSON.parse(decoded) as SyntheticJsonataExpression;
+  } catch {
+    return undefined;
+  }
+}
+
+function operandToExpression(operand: JsonataConditionOperand): SyntheticJsonataExpression {
+  if (isJsonataSlot(operand)) {
+    const synthetic = parseSyntheticExpressionSlotId(operand.__slotId);
+    if (synthetic) return synthetic;
+    return { kind: "slot", slotId: operand.__slotId };
+  }
+
+  return { kind: "literal", value: operand };
+}
+
+function assertConditionOperands(name: string, operands: JsonataSlot[]): void {
+  if (operands.length === 0) {
+    throw new Error(`${name}(...) requires at least one condition operand`);
+  }
+}
+
+
 /**
  * Simple slot combinator for boolean negation.
  *
  * This does not create a new compiled slot. Instead, the emitter recognizes
- * the synthetic `not(<slotId>)` wrapper and renders `not(<expr>)` in JSONata.
+ * the synthetic expression wrapper and renders `not(<expr>)` in JSONata.
  */
 export function not(inner: JsonataSlot): JsonataSlot {
-  return {
-    __kind: "jsonata_slot",
-    __slotId: `not(${inner.__slotId})`,
-  };
+  return encodeSyntheticExpression({
+    kind: "not",
+    operand: operandToExpression(inner),
+  });
+}
+
+/**
+ * Compose multiple boolean slots with JSONata `and`.
+ */
+export function and(...operands: [JsonataSlot, JsonataSlot, ...JsonataSlot[]]): JsonataSlot {
+  return encodeSyntheticExpression({
+    kind: "and",
+    operands: operands.map((operand) => operandToExpression(operand)),
+  });
+}
+
+/**
+ * Alias for variadic boolean conjunction with an explicit semantic name.
+ */
+export function all(...operands: JsonataSlot[]): JsonataSlot {
+  assertConditionOperands("all", operands);
+  if (operands.length === 1) return operands[0];
+  return and(operands[0], operands[1], ...operands.slice(2));
+}
+
+/**
+ * Compose multiple boolean slots with JSONata `or`.
+ */
+export function or(...operands: [JsonataSlot, JsonataSlot, ...JsonataSlot[]]): JsonataSlot {
+  return encodeSyntheticExpression({
+    kind: "or",
+    operands: operands.map((operand) => operandToExpression(operand)),
+  });
+}
+
+/**
+ * Alias for variadic boolean disjunction with an explicit semantic name.
+ */
+export function any(...operands: JsonataSlot[]): JsonataSlot {
+  assertConditionOperands("any", operands);
+  if (operands.length === 1) return operands[0];
+  return or(operands[0], operands[1], ...operands.slice(2));
+}
+
+/**
+ * Compare either slots or JSON literals with JSONata equality (`=`).
+ */
+export function eq(left: JsonataConditionOperand, right: JsonataConditionOperand): JsonataSlot {
+  return encodeSyntheticExpression({
+    kind: "eq",
+    left: operandToExpression(left),
+    right: operandToExpression(right),
+  });
+}
+
+/**
+ * Compare either slots or JSON literals with JSONata inequality (`!=`).
+ */
+export function neq(left: JsonataConditionOperand, right: JsonataConditionOperand): JsonataSlot {
+  return encodeSyntheticExpression({
+    kind: "neq",
+    left: operandToExpression(left),
+    right: operandToExpression(right),
+  });
 }
 
 /**

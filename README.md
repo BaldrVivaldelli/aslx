@@ -39,7 +39,7 @@ TS DSL ➜ SWC AST ➜ JSONata IR ➜ JSONata string ➜ (future) Rust ➜ YAML
 # 📦 Project Structure
 
     dsl/
-      jsonata.ts          → Authoring helpers
+      jsonata.ts          → Authoring helpers + condition combinators
       steps.ts            → Pass state builder
       choice.ts           → Choice state builder
       subflow.ts          → Inline subflows for choice targets
@@ -50,6 +50,7 @@ TS DSL ➜ SWC AST ➜ JSONata IR ➜ JSONata string ➜ (future) Rust ➜ YAML
       dsl-semantics.md     → Naming and semantics guide
       official-example.md  → Recommended end-to-end business flow
       validation.md        → Semantic validation rules and pipeline
+      choice-conditions.md → Condition helper reference for choice(...)
 
     compiler/
       compile-jsonata.ts        → Slot compiler
@@ -70,6 +71,7 @@ TS DSL ➜ SWC AST ➜ JSONata IR ➜ JSONata string ➜ (future) Rust ➜ YAML
 - [DSL semantics](docs/dsl-semantics.md)
 - [Official example](docs/official-example.md)
 - [Validation](docs/validation.md)
+- [Choice condition helpers](docs/choice-conditions.md)
 
 Start here if you want the meaning of each builder and the naming rules:
 
@@ -188,6 +190,30 @@ reduce(arr, (acc, x) => ..., init)
 obj[key] → $lookup(obj,key)
 ```
 
+
+# 🔀 Choice condition helpers
+
+The DSL now supports composable condition helpers for `choice(...)`:
+
+```ts
+choice("RouteComposedValidation")
+  .whenTrue(
+    all(
+      isValidationOk(),
+      any(
+        eq(validationMode(), "strict"),
+        eq(validationSource(), "manual"),
+      ),
+      neq(validationSource(), "legacy"),
+    ),
+    "PersistComposedValidation",
+  )
+  .otherwise("RejectComposedValidation")
+```
+
+These helpers are resolved by the emitter rather than compiled as extra slots.
+That keeps base expressions inside `slot(...)` and boolean composition at the control-flow layer.
+
 ------------------------------------------------------------------------
 
 # ✅ Validation pipeline
@@ -198,6 +224,7 @@ npm run build:machine
 npm run test:golden
 npm run test:validator:negative
 npm run test:compiler:negative
+npm run test:conditions
 ```
 
 - `validate:machine` checks graph correctness without writing ASL files
@@ -205,6 +232,7 @@ npm run test:compiler:negative
 - `test:golden` protects generated slots and machine JSON snapshots
 - `test:validator:negative` protects semantic validation error coverage
 - `test:compiler:negative` protects slot compiler subset errors and diagnostics
+- `test:conditions` protects composed `choice(...)` helper rendering
 
 Validation currently checks:
 

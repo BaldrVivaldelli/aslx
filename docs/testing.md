@@ -80,3 +80,13 @@ Current coverage includes:
 - unbound identifiers
 - malformed `slot(...)` calls without a slot id
 
+
+## Choice condition helper tests
+
+Run the composed condition helper suite with:
+
+```bash
+npm run test:conditions
+```
+
+This suite verifies that `and(...)`, `or(...)`, `all(...)`, `any(...)`, `eq(...)`, `neq(...)`, and `whenFalse(...)` render the expected JSONata conditions without introducing extra compiled slots, and that empty helper calls fail fast.

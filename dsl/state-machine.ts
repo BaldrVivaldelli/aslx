@@ -1,15 +1,17 @@
 import type { SlotRegistry } from "../compiler/emit-asl";
 import { emitStateMachine as emitAslStateMachine } from "../compiler/emit-asl";
-import type { SubflowNode } from "./subflow";
 import type { ChoiceNode, ChoiceRule } from "./choice";
 import { ChoiceBuilder } from "./choice";
 import type { PassNode } from "./steps";
 import { PassBuilder } from "./steps";
+import type { SubflowNode } from "./subflow";
+import type { TaskNode } from "./task";
+import { TaskBuilder } from "./task";
 
 export type StateMachineQueryLanguage = "JSONata" | "JSONPath";
 
-export type StepNode = PassNode | ChoiceNode;
-export type StepLike = PassBuilder | PassNode | ChoiceBuilder | ChoiceNode;
+export type StepNode = PassNode | TaskNode | ChoiceNode;
+export type StepLike = PassBuilder | PassNode | TaskBuilder | TaskNode | ChoiceBuilder | ChoiceNode;
 
 export type StateMachineNode = {
   kind: "stateMachine";
@@ -23,6 +25,10 @@ function isPassBuilder(step: StepLike): step is PassBuilder {
   return step instanceof PassBuilder;
 }
 
+function isTaskBuilder(step: StepLike): step is TaskBuilder {
+  return step instanceof TaskBuilder;
+}
+
 function isChoiceBuilder(step: StepLike): step is ChoiceBuilder {
   return step instanceof ChoiceBuilder;
 }
@@ -34,12 +40,33 @@ function clonePassNode(node: PassNode): PassNode {
   };
 }
 
+function cloneTaskArgumentValue(value: TaskNode["arguments"]): TaskNode["arguments"] {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneTaskArgumentValue(item) as NonNullable<TaskNode["arguments"]>[number]);
+  }
+  if (value !== null && typeof value === "object" && !("__kind" in value)) {
+    const out: Record<string, NonNullable<TaskNode["arguments"]>> = {};
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = cloneTaskArgumentValue(item as NonNullable<TaskNode["arguments"]>);
+    }
+    return out as TaskNode["arguments"];
+  }
+  return value;
+}
+
+function cloneTaskNode(node: TaskNode): TaskNode {
+  return {
+    ...node,
+    arguments: cloneTaskArgumentValue(node.arguments),
+    retry: node.retry ? node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] })) : undefined,
+  };
+}
+
 function cloneSubflowNode(node: SubflowNode): SubflowNode {
   return {
     kind: "subflow",
-    states: node.states.map((state) =>
-      state.kind === "pass" ? clonePassNode(state) : cloneChoiceNode(state),
-    ),
+    states: node.states.map(cloneNode),
   };
 }
 
@@ -62,15 +89,18 @@ function cloneChoiceNode(node: ChoiceNode): ChoiceNode {
 
 function materializeStep(step: StepLike): StepNode {
   if (isPassBuilder(step)) return step.build();
+  if (isTaskBuilder(step)) return step.build();
   if (isChoiceBuilder(step)) return step.build();
-  return step.kind === "pass" ? clonePassNode(step) : cloneChoiceNode(step);
+  return cloneNode(step);
 }
 
 function cloneNode(node: StepNode): StepNode {
-  return node.kind === "pass" ? clonePassNode(node) : cloneChoiceNode(node);
+  if (node.kind === "pass") return clonePassNode(node);
+  if (node.kind === "task") return cloneTaskNode(node);
+  return cloneChoiceNode(node);
 }
 
-function hasExplicitTransition(node: PassNode): boolean {
+function hasExplicitTransition(node: PassNode | TaskNode): boolean {
   return node.next !== undefined || node.end === true;
 }
 
@@ -96,7 +126,7 @@ function expandSequence(
     const next = wired[i + 1];
     const fallbackNext = next?.name ?? terminalNext;
 
-    if (current.kind === "pass") {
+    if (current.kind === "pass" || current.kind === "task") {
       if (!hasExplicitTransition(current)) {
         if (fallbackNext) current.next = fallbackNext;
         else current.end = true;

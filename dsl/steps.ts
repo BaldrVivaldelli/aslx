@@ -19,6 +19,7 @@ export type PassNode = {
   name: string;
   content?: PassContent;
   assign?: PassAssignMap;
+  comment?: string;
   next?: StepName;
   end?: true;
 };
@@ -47,6 +48,11 @@ export class PassBuilder {
   assigns(values: PassAssignMap): this {
     this.node.assign ??= {};
     Object.assign(this.node.assign, values);
+    return this;
+  }
+
+  comment(value: string): this {
+    this.node.comment = value;
     return this;
   }
 

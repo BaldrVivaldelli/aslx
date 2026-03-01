@@ -1,3 +1,4 @@
+.*Identifier
 node_modules/
 dist/
 build/
@@ -8,3 +9,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.gitignore
+build/slots.json
+build/machines/echo-flow.json
+build/machines/example-flow-with-join.json
+build/machines/example-flow-with-nested-subflows.json
+build/machines/example-flow-with-subflows.json
+build/machines/example-flow.json

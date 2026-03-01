@@ -9,12 +9,13 @@
     "node": ">=20"
   },
   "scripts": {
-    "compile": "node ./node_modules/tsx/dist/cli.mjs compiler/compile-jsonata.ts example/infra.ts",
-    "build:slots": "node ./node_modules/tsx/dist/cli.mjs compiler/compile-jsonata.ts example/infra.ts --out build/slots.json",
-    "watch": "node ./node_modules/tsx/dist/cli.mjs compiler/compile-jsonata.ts example/infra.ts --out build/slots.json --watch",
     "format": "prettier -w .",
     "lint": "eslint .",
+    "compile": "node ./node_modules/tsx/dist/cli.mjs compiler/compile-jsonata.ts example/infra.ts",
+    "build:slots": "node ./node_modules/tsx/dist/cli.mjs compiler/compile-jsonata.ts example/infra.ts --out build/slots.json",
     "build:machine": "npm run build:slots && node ./node_modules/tsx/dist/cli.mjs compiler/build-machine.ts example/infra.ts --slots build/slots.json --out-dir build/machines",
+    "build:yml": "npm run build:machine && tsx compiler/build-yml.ts --in-dir build/machines --out-dir build/machines",
+    "watch": "node ./node_modules/tsx/dist/cli.mjs compiler/compile-jsonata.ts example/infra.ts --out build/slots.json --watch",
     "validate:machine": "node ./node_modules/tsx/dist/cli.mjs compiler/validate-machine.ts example/infra.ts",
     "test:golden": "node ./node_modules/tsx/dist/cli.mjs tests/golden.ts",
     "test:golden:update": "node ./node_modules/tsx/dist/cli.mjs tests/golden.ts --update",
@@ -37,6 +38,7 @@
     "eslint": "^9.18.0",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "yaml": "^2.8.2"
   }
 }

@@ -88,6 +88,26 @@ const tests: Array<{ name: string; run: () => void }> = [
     },
   },
   {
+    name: 'rejects unknown catch targets from task states',
+    run: () => {
+      const machine = asNormalized(
+        stateMachine('UnknownCatchTarget')
+          .startWith(
+            task('Work')
+              .resource('arn:aws:states:::lambda:invoke')
+              .catchAll('MissingRecovery')
+              .end(),
+          )
+          .build(),
+      );
+
+      expectValidationError(machine, ['UNKNOWN_TRANSITION_TARGET'], [
+        'UNKNOWN_TRANSITION_TARGET',
+        'Work points to unknown state MissingRecovery',
+      ]);
+    },
+  },
+  {
     name: 'rejects unknown default targets from choice states',
     run: () => {
       const machine = asNormalized(
@@ -277,6 +297,95 @@ const tests: Array<{ name: string; run: () => void }> = [
 
       expectValidationError(normalized, ['CHOICE_NO_BRANCHES'], [
         'Choice state BrokenChoice must declare at least one branch',
+      ]);
+    },
+  },
+  {
+    name: 'rejects invalid resultPath on task states',
+    run: () => {
+      const normalized = asNormalized({
+        kind: 'stateMachine',
+        name: 'InvalidResultPath',
+        states: [
+          {
+            kind: 'task',
+            name: 'BrokenTask',
+            resource: 'arn:aws:states:::lambda:invoke',
+            resultPath: 'query_result',
+            end: true,
+          },
+        ],
+      });
+
+      expectValidationError(normalized, ['TASK_INVALID_RESULT_PATH'], [
+        'Task state BrokenTask must declare a valid ResultPath',
+      ]);
+    },
+  },
+  {
+    name: 'rejects non-positive timeoutSeconds on task states',
+    run: () => {
+      const normalized = asNormalized({
+        kind: 'stateMachine',
+        name: 'InvalidTimeoutSeconds',
+        states: [
+          {
+            kind: 'task',
+            name: 'BrokenTask',
+            resource: 'arn:aws:states:::lambda:invoke',
+            timeoutSeconds: 0,
+            end: true,
+          },
+        ],
+      });
+
+      expectValidationError(normalized, ['TASK_INVALID_TIMEOUT_SECONDS'], [
+        'Task state BrokenTask must declare a positive integer TimeoutSeconds value',
+      ]);
+    },
+  },
+  {
+    name: 'rejects non-positive heartbeatSeconds on task states',
+    run: () => {
+      const normalized = asNormalized({
+        kind: 'stateMachine',
+        name: 'InvalidHeartbeatSeconds',
+        states: [
+          {
+            kind: 'task',
+            name: 'BrokenTask',
+            resource: 'arn:aws:states:::lambda:invoke',
+            heartbeatSeconds: 0,
+            end: true,
+          },
+        ],
+      });
+
+      expectValidationError(normalized, ['TASK_INVALID_HEARTBEAT_SECONDS'], [
+        'Task state BrokenTask must declare a positive integer HeartbeatSeconds value',
+      ]);
+    },
+  },
+  {
+    name: 'rejects heartbeatSeconds greater than or equal to timeoutSeconds',
+    run: () => {
+      const normalized = asNormalized({
+        kind: 'stateMachine',
+        name: 'HeartbeatExceedsTimeout',
+        states: [
+          {
+            kind: 'task',
+            name: 'BrokenTask',
+            resource: 'arn:aws:states:::lambda:invoke',
+            timeoutSeconds: 10,
+            heartbeatSeconds: 10,
+            end: true,
+          },
+        ],
+      });
+
+      expectValidationError(normalized, ['TASK_HEARTBEAT_EXCEEDS_TIMEOUT'], [
+        'Task state BrokenTask must declare HeartbeatSeconds smaller than TimeoutSeconds',
       ]);
     },
   },

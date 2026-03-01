@@ -17,6 +17,7 @@ import { emitStateMachine } from "../compiler/emit-asl";
 import { subflow } from "../dsl/subflow";
 import { choice } from "../dsl/choice";
 import { stateMachine } from "../dsl/state-machine";
+import { parallel } from "../dsl/parallel";
 import { pass } from "../dsl/steps";
 import type { RetryPolicy } from "../dsl/task";
 import { task } from "../dsl/task";
@@ -348,6 +349,17 @@ export function computeManyOutput() {
   );
 }
 
+
+export function lambdaPayloadSlot() {
+  return slot("package:task/computeMany/resultSelectorPayload", () =>
+    ($states as { result: { Payload: unknown } }).result.Payload,
+  );
+}
+
+export function lambdaExecutedSource() {
+  return slot("package:task/computeMany/resultSelectorSource", () => "lambda_invoke");
+}
+
 export function lambdaServiceRetry(): RetryPolicy {
   return {
     ErrorEquals: [
@@ -392,7 +404,7 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
         TableName: "${file(resources/index.json):tables.providers}",
         Key: packageKey(),
       })
-      .output(getPackageOutput()),
+      .resultPath("$.query_result"),
   )
   .then(
     lambdaInvoke("PreparePackageModules")
@@ -418,7 +430,13 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
       .payload({
         computeMany: statesInputSlot(),
       })
-      .output(computeManyOutput())
+      .resultSelector({
+        payload: lambdaPayloadSlot(),
+        source: lambdaExecutedSource(),
+      })
+      .resultPath("$.compute")
+      .timeoutSeconds(30)
+      .heartbeatSeconds(10)
       .retry(lambdaServiceRetry())
       .end(),
   )
@@ -428,6 +446,171 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
       .content({
         ok: false,
         reason: "invalid_modules",
+      })
+      .end(),
+  );
+
+
+export const exampleFlowWithTaskResultControls = stateMachine("ExampleFlowWithTaskResultControls")
+  .queryLanguage("JSONata")
+  .comment("Demonstrates ResultSelector, ResultPath, TimeoutSeconds, and HeartbeatSeconds on Lambda tasks.")
+  .startWith(
+    lambdaInvoke("ComputeManyWithControls")
+      .comment("Invokes the computation Lambda and stores a selected result payload under $.compute.")
+      .functionName("${file(resources/index.json):cross_lambdas.methods}")
+      .payload({
+        computeMany: statesInputSlot(),
+      })
+      .resultSelector({
+        payload: lambdaPayloadSlot(),
+        source: lambdaExecutedSource(),
+      })
+      .resultPath("$.compute")
+      .timeoutSeconds(45)
+      .heartbeatSeconds(15),
+  )
+  .then(
+    pass("AfterTaskControls")
+      .content({
+        ok: true,
+        handled: "task_result_controls",
+      })
+      .end(),
+  );
+
+
+export function merchantLookupKey() {
+  return slot("merchant:task/getMerchantProfile/key", () => ({
+    PK: "MERCHANT#" + (($states as { input: { merchant_id: string } }).input.merchant_id),
+    SK: "PROFILE",
+  }));
+}
+
+export function merchantProfileSlot() {
+  return slot("merchant:task/getMerchantProfile/profile", () =>
+    ($states as { input: { merchant_profile: unknown } }).input.merchant_profile,
+  );
+}
+
+export function merchantDecisionApproved() {
+  return slot("merchant:task/scoreMerchantOnboarding/approved", () =>
+    ($states as { result: { Payload: { approved: boolean } } }).result.Payload.approved,
+  );
+}
+
+export function merchantDecisionBand() {
+  return slot("merchant:task/scoreMerchantOnboarding/band", () =>
+    ($states as { result: { Payload: { band: string } } }).result.Payload.band,
+  );
+}
+
+export function merchantDecisionReasons() {
+  return slot("merchant:task/scoreMerchantOnboarding/reasons", () =>
+    ($states as { result: { Payload: { reasons: unknown[] } } }).result.Payload.reasons,
+  );
+}
+
+export function merchantDecisionSource() {
+  return slot("merchant:task/scoreMerchantOnboarding/source", () => "risk_engine");
+}
+
+export function isMerchantAutoApproved() {
+  return slot("merchant:choice/isMerchantAutoApproved", () =>
+    (($states as { input: { decision: { approved?: boolean } } }).input.decision.approved === true),
+  );
+}
+
+export const merchantOnboardingDecisionFlow = stateMachine("MerchantOnboardingDecisionFlow")
+  .queryLanguage("JSONata")
+  .comment("Fetches a merchant profile, scores onboarding risk, and routes the request using compact business result fields.")
+  .startWith(
+    awsSdkTask("GetMerchantProfile")
+      .comment("Fetches the merchant profile and attaches the raw infrastructure result under $.merchant_profile.")
+      .service("dynamodb")
+      .action("getItem")
+      .arguments({
+        TableName: "${file(resources/index.json):tables.merchants}",
+        Key: merchantLookupKey(),
+      })
+      .resultPath("$.merchant_profile"),
+  )
+  .then(
+    lambdaInvoke("ScoreMerchantOnboarding")
+      .comment("Scores onboarding risk and stores only the business decision fields under $.decision.")
+      .functionName("${file(resources/index.json):cross_lambdas.score_merchant}")
+      .payload({
+        request: statesInputSlot(),
+        merchantProfile: merchantProfileSlot(),
+      })
+      .resultSelector({
+        approved: merchantDecisionApproved(),
+        band: merchantDecisionBand(),
+        reasons: merchantDecisionReasons(),
+        source: merchantDecisionSource(),
+      })
+      .resultPath("$.decision")
+      .timeoutSeconds(20)
+      .retry(lambdaServiceRetry()),
+  )
+  .then(
+    choice("IsMerchantAutoApproved")
+      .comment("Routes auto-approved merchants directly to persistence and sends everything else to manual review.")
+      .whenTrue(isMerchantAutoApproved(), "PersistAutoApproval")
+      .otherwise("SendToManualReview"),
+  )
+  .then(
+    pass("PersistAutoApproval")
+      .comment("Represents the happy path for automatically approved merchants.")
+      .content({
+        ok: true,
+        status: "auto_approved",
+      })
+      .end(),
+  )
+  .then(
+    pass("SendToManualReview")
+      .comment("Represents the fallback path when the decision is not an automatic approval.")
+      .content({
+        ok: true,
+        status: "manual_review",
+      })
+      .end(),
+  );
+
+
+export const exampleFlowWithCatch = stateMachine("ExampleFlowWithCatch")
+  .queryLanguage("JSONata")
+  .comment("Handles task failures through an inline catch recovery subflow that rejoins the main flow.")
+  .startWith(
+    lambdaInvoke("ComputeWithRecovery")
+      .comment("Attempts the compute Lambda and routes failures through a localized recovery path.")
+      .functionName("${file(resources/index.json):cross_lambdas.methods}")
+      .payload({
+        computeMany: statesInputSlot(),
+      })
+      .output(computeManyOutput())
+      .retry(lambdaServiceRetry())
+      .catchAll(
+        subflow(
+          pass("NormalizeComputeError")
+            .content({
+              ok: false,
+              reason: "compute_failed",
+            }),
+        ).then(
+          pass("AuditComputeFailure")
+            .content({
+              audited: true,
+              source: "catch",
+            }),
+        ),
+        { resultPath: "$.compute_error" },
+      ),
+  )
+  .then(
+    pass("AfterComputeAttempt")
+      .content({
+        joined: true,
       })
       .end(),
   );
@@ -488,6 +671,8 @@ export const exampleSlots = {
   "example:Choice/isValidationOk": `($exists($states.input.validation) and $states.input.validation.valid = true)`,
   "example:Choice/validationMode": `($states.input.validation.mode)`,
   "example:Choice/validationSource": `($states.input.validation.source)`,
+  "package:common/statesInput": `($states.input)`,
+  "package:task/computeMany/output": `($states.result.Payload)`,
 };
 
 export const exampleStateMachine = emitStateMachine(exampleFlow.build(), exampleSlots);
@@ -505,6 +690,11 @@ export const exampleStateMachineWithConditionHelpers = emitStateMachine(
   exampleSlots,
 );
 
+
+export const exampleStateMachineWithCatch = emitStateMachine(
+  exampleFlowWithCatch.build(),
+  exampleSlots,
+);
 export const exampleFlowWithNestedSubflows = stateMachine("ExampleFlowWithNestedSubflows")
   .startWith(
     pass("ValidateInputNested")
@@ -586,3 +776,63 @@ export const exampleStateMachineWithNestedSubflows = emitStateMachine(
   exampleFlowWithNestedSubflows.build(),
   exampleSlots,
 );
+
+
+export function mergeMerchantContextOutput() {
+  return slot("merchant:parallel/mergeContextOutput", () => ({
+    merchant_context: ($states as any).input.parallel_results,
+    merged: true,
+  }));
+}
+
+export function isMerchantEligible() {
+  return slot("merchant:parallel/isEligible", () => true);
+}
+
+export const merchantOnboardingParallelFlow = stateMachine("MerchantOnboardingParallelFlow")
+  .queryLanguage("JSONata")
+  .comment("Loads merchant onboarding context concurrently before making an eligibility decision.")
+  .startWith(
+    parallel("PrepareMerchantContext")
+      .comment("Loads merchant-related context concurrently.")
+      .branch(
+        subflow(
+          lambdaInvoke("LoadMerchantProfile")
+            .functionName("${file(resources/index.json):cross_lambdas.load_merchant_profile}")
+            .payload({ input: statesInputSlot() }),
+        ),
+      )
+      .branch(
+        subflow(
+          lambdaInvoke("LoadRiskProfile")
+            .functionName("${file(resources/index.json):cross_lambdas.load_risk_profile}")
+            .payload({ input: statesInputSlot() }),
+        ),
+      )
+      .branch(
+        subflow(
+          lambdaInvoke("LoadOnboardingFlags")
+            .functionName("${file(resources/index.json):cross_lambdas.load_onboarding_flags}")
+            .payload({ input: statesInputSlot() }),
+        ),
+      )
+      .resultPath("$.parallel_results"),
+  )
+  .then(
+    pass("MergeMerchantContext")
+      .content(mergeMerchantContextOutput()),
+  )
+  .then(
+    choice("IsMerchantEligible")
+      .whenTrue(isMerchantEligible(), "ApproveMerchant")
+      .otherwise("RejectMerchant"),
+  )
+  .then(
+    pass("ApproveMerchant")
+      .content({ ok: true }),
+  )
+  .then(
+    pass("RejectMerchant")
+      .content({ ok: false })
+      .end(),
+  );

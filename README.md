@@ -51,6 +51,8 @@ TS DSL ➜ SWC AST ➜ JSONata IR ➜ JSONata string ➜ (future) Rust ➜ YAML
       official-example.md  → Recommended end-to-end business flow
       validation.md        → Semantic validation rules and pipeline
       choice-conditions.md → Condition helper reference for choice(...)
+      catch.md             → Task catch handlers and recovery paths
+      task-controls.md     → ResultPath, ResultSelector, timeout, heartbeat
 
     compiler/
       compile-jsonata.ts        → Slot compiler
@@ -72,6 +74,8 @@ TS DSL ➜ SWC AST ➜ JSONata IR ➜ JSONata string ➜ (future) Rust ➜ YAML
 - [Official example](docs/official-example.md)
 - [Validation](docs/validation.md)
 - [Choice condition helpers](docs/choice-conditions.md)
+- [Task catch handlers](docs/catch.md)
+- [Task result controls](docs/task-controls.md)
 
 Start here if you want the meaning of each builder and the naming rules:
 
@@ -225,6 +229,7 @@ npm run test:golden
 npm run test:validator:negative
 npm run test:compiler:negative
 npm run test:conditions
+npm run test:catch
 ```
 
 - `validate:machine` checks graph correctness without writing ASL files
@@ -233,6 +238,7 @@ npm run test:conditions
 - `test:validator:negative` protects semantic validation error coverage
 - `test:compiler:negative` protects slot compiler subset errors and diagnostics
 - `test:conditions` protects composed `choice(...)` helper rendering
+- `test:catch` protects task catch handler emission and inline recovery auto-wiring
 
 Validation currently checks:
 
@@ -294,49 +300,6 @@ Available for DX:
 -   upper
 -   reduce
 
-
-------------------------------------------------------------------------
-
-## Task support
-
-The project now includes a generic `task(...)` builder for aws-sdk tasks and `lambdaInvoke(...)` as focused sugar for Lambda Step Functions tasks. See `example/infra.ts` and `docs/quickstart.md` for concrete examples.
-
-------------------------------------------------------------------------
-## Golden tests
-
-Use golden snapshot tests to lock down the emitted `slots.json` and `machines/*.json` artifacts.
-
-```bash
-npm run test:golden
-```
-
-If you intentionally changed the DSL, compiler, normalizer, or emitter and want to refresh the expected outputs:
-
-```bash
-npm run test:golden:update
-```
-
-Snapshots live under:
-
-- `testdata/golden/slots.json`
-- `testdata/golden/machines/*.json`
-------------------------------------------------------------------------
-
-## AWS SDK sugar
-
-Use `awsSdkTask(...)` when you want to express an AWS SDK integration with `.service(...)` and `.action(...)` instead of spelling the full resource ARN manually.
-
-```ts
-awsSdkTask("GetPackage")
-  .service("dynamodb")
-  .action("getItem")
-  .arguments({
-    TableName: "${file(resources/index.json):tables.providers}",
-    Key: packageKey(),
-  })
-  .output(getPackageOutput());
-```
-
 ------------------------------------------------------------------------
 
 # 🧯 Errors
@@ -356,6 +319,7 @@ This lets you:
 -   Plug a **Rust backend for YAML**
 -   Ship a **real platform product**
 
+Exactly your Osiris/Nave vision.
 
 ------------------------------------------------------------------------
 
@@ -378,3 +342,56 @@ JSONata is the **execution language**
 You own the **compiler layer**
 
 That's the power move.
+
+## Task support
+
+The project now includes a generic `task(...)` builder for aws-sdk tasks and `lambdaInvoke(...)` as focused sugar for Lambda Step Functions tasks. See `example/infra.ts` and `docs/quickstart.md` for concrete examples.
+
+## Golden tests
+
+Use golden snapshot tests to lock down the emitted `slots.json` and `machines/*.json` artifacts.
+
+```bash
+npm run test:golden
+```
+
+If you intentionally changed the DSL, compiler, normalizer, or emitter and want to refresh the expected outputs:
+
+```bash
+npm run test:golden:update
+```
+
+Snapshots live under:
+
+- `testdata/golden/slots.json`
+- `testdata/golden/machines/*.json`
+
+
+## AWS SDK sugar
+
+Use `awsSdkTask(...)` when you want to express an AWS SDK integration with `.service(...)` and `.action(...)` instead of spelling the full resource ARN manually.
+
+```ts
+awsSdkTask("GetPackage")
+  .service("dynamodb")
+  .action("getItem")
+  .arguments({
+    TableName: "${file(resources/index.json):tables.providers}",
+    Key: packageKey(),
+  })
+  .output(getPackageOutput());
+```
+
+
+## Task result controls
+
+The DSL supports `resultSelector(...)`, `resultPath(...)`, `timeoutSeconds(...)`, and `heartbeatSeconds(...)` on task states. See `docs/task-controls.md` for examples and validation rules.
+
+
+## Additional docs
+
+- `docs/parallel.md`
+
+## Additional test scripts
+
+- `npm run test:parallel`

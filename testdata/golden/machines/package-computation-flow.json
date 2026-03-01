@@ -11,7 +11,7 @@
         "TableName": "${file(resources/index.json):tables.providers}",
         "Key": "{% ((\n  $states.input.pk_sk\n)) %}"
       },
-      "Output": "{% ((\n  $merge([$states.input, {\"query_result\": $states.result}])\n)) %}",
+      "ResultPath": "$.query_result",
       "Next": "PreparePackageModules"
     },
     "PreparePackageModules": {
@@ -48,7 +48,13 @@
           "computeMany": "{% ((\n  $states.input\n)) %}"
         }
       },
-      "Output": "{% ((\n  $states.result.Payload\n)) %}",
+      "ResultSelector": {
+        "payload": "{% ((\n  $states.result.Payload\n)) %}",
+        "source": "{% ((\n  \"lambda_invoke\"\n)) %}"
+      },
+      "ResultPath": "$.compute",
+      "TimeoutSeconds": 30,
+      "HeartbeatSeconds": 10,
       "Retry": [
         {
           "ErrorEquals": [

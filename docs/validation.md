@@ -28,7 +28,7 @@ The first validator pass checks the following:
 - the machine contains at least one state
 - `StartAt` points to a real state
 - state names are unique
-- `next(...)` and `otherwise(...)` targets exist
+- `next(...)`, `otherwise(...)`, and `catch(...)` targets exist
 - `Pass` states do not declare both `next` and `end`
 - `Pass` states declare at least one transition strategy
 - `Task` states declare a `resource`

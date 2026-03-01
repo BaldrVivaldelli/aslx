@@ -1,14 +1,12 @@
-import type { ChoiceNode } from "../dsl/choice";
+import type { ParallelNode } from "../dsl/parallel";
 import type { StateMachineNode, StepNode } from "../dsl/state-machine";
-import type { PassNode } from "../dsl/steps";
-import type { TaskNode } from "../dsl/task";
 
 export type NormalizedStateNode = StepNode;
 
 export type NormalizedTransition = {
   from: string;
   to: string;
-  kind: "next" | "choice" | "default";
+  kind: "next" | "choice" | "default" | "catch";
 };
 
 export type NormalizedStateMachine = {
@@ -28,8 +26,15 @@ function cloneState<T extends NormalizedStateNode>(node: T): T {
 }
 
 function getOutgoingTransitions(node: NormalizedStateNode): NormalizedTransition[] {
-  if (node.kind === "pass" || node.kind === "task") {
+  if (node.kind === "pass") {
     return node.next ? [{ from: node.name, to: node.next, kind: "next" }] : [];
+  }
+
+  if (node.kind === "task" || node.kind === "parallel") {
+    return [
+      ...(node.next ? [{ from: node.name, to: node.next, kind: "next" as const }] : []),
+      ...((node.catch ?? []).map((policy) => ({ from: node.name, to: policy.Next, kind: "catch" as const }))),
+    ];
   }
 
   return [

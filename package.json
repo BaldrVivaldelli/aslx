@@ -21,10 +21,13 @@
     "test:validator:negative": "node ./node_modules/tsx/dist/cli.mjs tests/validator-negative.ts",
     "test:compiler:negative": "node ./node_modules/tsx/dist/cli.mjs tests/compiler-negative.ts",
     "test:aws-sdk": "node ./node_modules/tsx/dist/cli.mjs tests/aws-sdk-builder.ts",
-    "test:conditions": "node ./node_modules/tsx/dist/cli.mjs tests/choice-conditions.ts"
+    "test:conditions": "node ./node_modules/tsx/dist/cli.mjs tests/choice-conditions.ts",
+    "test:catch": "node ./node_modules/tsx/dist/cli.mjs tests/catch-builder.ts",
+    "test:task-controls": "node ./node_modules/tsx/dist/cli.mjs tests/task-controls.ts",
+    "test:parallel": "node ./node_modules/tsx/dist/cli.mjs tests/parallel.ts"
   },
   "dependencies": {
-    "@swc/core": "^1.5.29",  
+    "@swc/core": "^1.5.29",
     "@swc/core-linux-x64-gnu": "^1.15.17"
   },
   "devDependencies": {

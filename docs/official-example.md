@@ -8,6 +8,7 @@ This is the recommended shape of the DSL for a realistic business workflow.
 - use **Lambda invoke tasks** for collection-oriented or domain-heavy preparation
 - use **Choice** for explicit control-flow decisions
 - use **Pass** for simple terminal responses
+- use **resultPath(...)** and **resultSelector(...)** to keep task outputs readable and stable
 
 ## Flow definition
 
@@ -19,14 +20,14 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
   )
   .startWith(
     awsSdkTask("GetPackage")
-      .comment("Loads the package definition from DynamoDB.")
+      .comment("Loads the package definition from DynamoDB and attaches it under $.query_result.")
       .service("dynamodb")
       .action("getItem")
       .arguments({
         TableName: "${file(resources/index.json):tables.providers}",
         Key: packageKey(),
       })
-      .output(getPackageOutput()),
+      .resultPath("$.query_result"),
   )
   .then(
     lambdaInvoke("PreparePackageModules")
@@ -47,12 +48,18 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
   )
   .then(
     lambdaInvoke("ComputeMany")
-      .comment("Invokes the computation Lambda with the prepared input.")
+      .comment("Invokes the computation Lambda and stores a compact compute result under $.compute.")
       .functionName("${file(resources/index.json):cross_lambdas.methods}")
       .payload({
         computeMany: statesInputSlot(),
       })
-      .output(computeManyOutput())
+      .resultSelector({
+        payload: lambdaPayloadSlot(),
+        source: lambdaExecutedSource(),
+      })
+      .resultPath("$.compute")
+      .timeoutSeconds(30)
+      .heartbeatSeconds(10)
       .retry(lambdaServiceRetry())
       .end(),
   )
@@ -78,17 +85,6 @@ export function packageKey() {
   return slot("package:task/getPackage/key", () => $states.input.pk_sk as any);
 }
 
-export function getPackageOutput() {
-  return slot("package:task/getPackage/output", () =>
-    $merge([
-      $states.input,
-      {
-        query_result: $states.result,
-      },
-    ]),
-  );
-}
-
 export function preparePackageModulesOutput() {
   return slot("package:task/preparePackageModules/output", () => ({
     input: ($states.result.Payload as any).input,
@@ -103,10 +99,14 @@ export function isPreparedModulesValid() {
   );
 }
 
-export function computeManyOutput() {
-  return slot("package:task/computeMany/output", () =>
+export function lambdaPayloadSlot() {
+  return slot("package:task/computeMany/resultSelectorPayload", () =>
     $states.result.Payload as any,
   );
+}
+
+export function lambdaExecutedSource() {
+  return slot("package:task/computeMany/resultSelectorSource", () => "lambda_invoke");
 }
 ```
 
@@ -114,10 +114,22 @@ export function computeManyOutput() {
 
 This example captures the intended design of the DSL:
 
-- **`task(...)`** models real side effects in a generic way
+- **`awsSdkTask(...)`** keeps singular infrastructure reads close to the native integration shape
 - **`lambdaInvoke(...)`** makes Lambda tasks concise without changing the emitted ASL
-- **`arguments(...)`** keeps AWS and Lambda payloads readable
-- **`output(slot(...))`** encourages full output transformations instead of mixing inline fragments
+- **`resultPath(...)`** preserves the incoming state while attaching infrastructure results
+- **`resultSelector(...) + resultPath(...)`** produce compact downstream business fields
+- **`output(slot(...))`** remains the best tool when a task should fully reshape the state
 - **`choice(...)`** makes branching explicit and semantic
-- **`pass(...)`** is ideal for simple terminal responses
 - **comments** document business intent directly in the flow
+
+## Why `GetPackage` uses `resultPath(...)`
+
+`GetPackage` is an infrastructure read. The next step still needs the existing request state, so attaching the DynamoDB result under `$.query_result` is cleaner than replacing the full output.
+
+## Why `PreparePackageModules` uses `output(...)`
+
+This task is not just attaching an integration result. It is preparing a new business state for the flow. That is exactly where `output(...)` is a better semantic fit.
+
+## Why `ComputeMany` uses `resultSelector(...) + resultPath(...)`
+
+The Lambda result likely contains more than the flow should carry forward. Selecting only the compact business-facing fields keeps the downstream control flow stable and readable.

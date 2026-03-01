@@ -1,0 +1,92 @@
+{
+  "QueryLanguage": "JSONata",
+  "Comment": "Loads merchant onboarding context concurrently before making an eligibility decision.",
+  "StartAt": "PrepareMerchantContext",
+  "States": {
+    "PrepareMerchantContext": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "LoadMerchantProfile",
+          "States": {
+            "LoadMerchantProfile": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Arguments": {
+                "FunctionName": "${file(resources/index.json):cross_lambdas.load_merchant_profile}",
+                "Payload": {
+                  "input": "{% ((\n  $states.input\n)) %}"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "LoadRiskProfile",
+          "States": {
+            "LoadRiskProfile": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Arguments": {
+                "FunctionName": "${file(resources/index.json):cross_lambdas.load_risk_profile}",
+                "Payload": {
+                  "input": "{% ((\n  $states.input\n)) %}"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "LoadOnboardingFlags",
+          "States": {
+            "LoadOnboardingFlags": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Arguments": {
+                "FunctionName": "${file(resources/index.json):cross_lambdas.load_onboarding_flags}",
+                "Payload": {
+                  "input": "{% ((\n  $states.input\n)) %}"
+                }
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "Comment": "Loads merchant-related context concurrently.",
+      "ResultPath": "$.parallel_results",
+      "Next": "MergeMerchantContext"
+    },
+    "MergeMerchantContext": {
+      "Type": "Pass",
+      "Output": "{% ((\n  {\"merchant_context\": $states.input.parallel_results, \"merged\": true}\n)) %}",
+      "Next": "IsMerchantEligible"
+    },
+    "IsMerchantEligible": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% ((\n  true\n)) %}",
+          "Next": "ApproveMerchant"
+        }
+      ],
+      "Default": "RejectMerchant"
+    },
+    "ApproveMerchant": {
+      "Type": "Pass",
+      "Output": {
+        "ok": true
+      },
+      "Next": "RejectMerchant"
+    },
+    "RejectMerchant": {
+      "Type": "Pass",
+      "Output": {
+        "ok": false
+      },
+      "End": true
+    }
+  }
+}

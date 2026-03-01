@@ -1,0 +1,82 @@
+{
+  "QueryLanguage": "JSONata",
+  "Comment": "Fetches a merchant profile, scores onboarding risk, and routes the request using compact business result fields.",
+  "StartAt": "GetMerchantProfile",
+  "States": {
+    "GetMerchantProfile": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:getItem",
+      "Comment": "Fetches the merchant profile and attaches the raw infrastructure result under $.merchant_profile.",
+      "Arguments": {
+        "TableName": "${file(resources/index.json):tables.merchants}",
+        "Key": "{% ((\n  {\"PK\": (\"MERCHANT#\" & $states.input.merchant_id), \"SK\": \"PROFILE\"}\n)) %}"
+      },
+      "ResultPath": "$.merchant_profile",
+      "Next": "ScoreMerchantOnboarding"
+    },
+    "ScoreMerchantOnboarding": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Scores onboarding risk and stores only the business decision fields under $.decision.",
+      "Arguments": {
+        "FunctionName": "${file(resources/index.json):cross_lambdas.score_merchant}",
+        "Payload": {
+          "request": "{% ((\n  $states.input\n)) %}",
+          "merchantProfile": "{% ((\n  $states.input.merchant_profile\n)) %}"
+        }
+      },
+      "ResultSelector": {
+        "approved": "{% ((\n  $states.result.Payload.approved\n)) %}",
+        "band": "{% ((\n  $states.result.Payload.band\n)) %}",
+        "reasons": "{% ((\n  $states.result.Payload.reasons\n)) %}",
+        "source": "{% ((\n  \"risk_engine\"\n)) %}"
+      },
+      "ResultPath": "$.decision",
+      "TimeoutSeconds": 20,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "IsMerchantAutoApproved"
+    },
+    "IsMerchantAutoApproved": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% ((\n  ($states.input.decision.approved = true)\n)) %}",
+          "Next": "PersistAutoApproval"
+        }
+      ],
+      "Comment": "Routes auto-approved merchants directly to persistence and sends everything else to manual review.",
+      "Default": "SendToManualReview"
+    },
+    "PersistAutoApproval": {
+      "Type": "Pass",
+      "Comment": "Represents the happy path for automatically approved merchants.",
+      "Output": {
+        "ok": true,
+        "status": "auto_approved"
+      },
+      "End": true
+    },
+    "SendToManualReview": {
+      "Type": "Pass",
+      "Comment": "Represents the fallback path when the decision is not an automatic approval.",
+      "Output": {
+        "ok": true,
+        "status": "manual_review"
+      },
+      "End": true
+    }
+  }
+}

@@ -50,6 +50,11 @@ function cloneTaskNode(node: TaskNode): TaskNode {
     ...node,
     arguments: cloneTaskArgumentValue(node.arguments),
     retry: node.retry ? node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] })) : undefined,
+    catch: node.catch ? node.catch.map((policy) => ({
+      ...policy,
+      ErrorEquals: [...policy.ErrorEquals],
+      inlineTarget: policy.inlineTarget ? cloneSubflowNode(policy.inlineTarget) : undefined,
+    })) : undefined,
   };
 }
 

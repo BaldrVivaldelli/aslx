@@ -253,11 +253,44 @@ lambdaInvoke("ComputeMany")
   .end();
 ```
 
+Use `resultPath(...)` when you want to preserve the current state and attach the integration result under a stable field:
+
+```ts
+awsSdkTask("GetPackage")
+  .service("dynamodb")
+  .action("getItem")
+  .arguments({
+    TableName: "${file(resources/index.json):tables.providers}",
+    Key: packageKey(),
+  })
+  .resultPath("$.query_result");
+```
+
+Use `resultSelector(...) + resultPath(...)` when the raw result is noisy and you only want a compact business object downstream:
+
+```ts
+lambdaInvoke("ComputeMany")
+  .functionName("${file(resources/index.json):cross_lambdas.methods}")
+  .payload({
+    computeMany: statesInputSlot(),
+  })
+  .resultSelector({
+    payload: lambdaPayloadSlot(),
+    source: lambdaExecutedSource(),
+  })
+  .resultPath("$.compute")
+  .timeoutSeconds(30)
+  .heartbeatSeconds(10)
+  .retry(lambdaServiceRetry());
+```
+
 ---
 
 ## Official business workflow example
 
-For the recommended end-to-end example using `task(...)`, `lambdaInvoke(...)`, `choice(...)`, and top-level metadata, see [Official example](./official-example.md).
+For the recommended end-to-end example using `task(...)`, `lambdaInvoke(...)`, `choice(...)`, top-level metadata, and task result controls, see [Official example](./official-example.md).
+
+For the detailed guide on when to choose `resultPath(...)`, `resultSelector(...)`, or `output(...)`, see [Task result controls](./task-controls.md).
 
 
 ## AWS SDK task sugar
@@ -271,4 +304,38 @@ awsSdkTask("GetPackage")
     Key: packageKey(),
   })
   .output(getPackageOutput());
+```
+
+## Task catch handlers
+
+`task(...)` and sugars built on top of it support recovery handlers through `catch(...)` and `catchAll(...)`.
+
+```ts
+lambdaInvoke("ComputeWithRecovery")
+  .functionName("ComputeFunctionArn")
+  .payload({
+    computeMany: statesInputSlot(),
+  })
+  .catchAll(
+    subflow(
+      pass("NormalizeComputeError")
+        .content({ ok: false, reason: "compute_failed" }),
+    ).then(
+      pass("AuditComputeFailure")
+        .content({ audited: true, source: "catch" }),
+    ),
+    { resultPath: "$.compute_error" },
+  )
+```
+
+If the inline recovery subflow omits explicit edges, it auto-joins into the next top-level step, using the same auto-wiring rule as inline `choice(...)` targets.
+
+
+## Parallel example
+
+```ts
+parallel("PrepareMerchantContext")
+  .branch(subflow(lambdaInvoke("LoadMerchantProfile").functionName("...").payload({ input: statesInputSlot() })))
+  .branch(subflow(lambdaInvoke("LoadRiskProfile").functionName("...").payload({ input: statesInputSlot() })))
+  .resultPath("$.parallel_results")
 ```

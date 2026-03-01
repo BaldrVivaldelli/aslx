@@ -8,6 +8,17 @@
   "package:task/getPackage/output": "{%\n(\n  $merge([$states.input, {\"query_result\": $states.result}])\n)\n%}",
   "package:common/statesInput": "{%\n(\n  $states.input\n)\n%}",
   "package:task/computeMany/output": "{%\n(\n  $states.result.Payload\n)\n%}",
+  "package:task/computeMany/resultSelectorPayload": "{%\n(\n  $states.result.Payload\n)\n%}",
+  "package:task/computeMany/resultSelectorSource": "{%\n(\n  \"lambda_invoke\"\n)\n%}",
   "package:task/preparePackageModules/output": "{%\n(\n  {\"input\": $states.result.Payload.input, \"items_found\": $states.result.Payload.items_found, \"all_modules_valid\": $states.result.Payload.all_modules_valid}\n)\n%}",
-  "package:choice/isPreparedModulesValid": "{%\n(\n  ($states.input.all_modules_valid = true)\n)\n%}"
+  "package:choice/isPreparedModulesValid": "{%\n(\n  ($states.input.all_modules_valid = true)\n)\n%}",
+  "merchant:task/getMerchantProfile/key": "{%\n(\n  {\"PK\": (\"MERCHANT#\" & $states.input.merchant_id), \"SK\": \"PROFILE\"}\n)\n%}",
+  "merchant:task/getMerchantProfile/profile": "{%\n(\n  $states.input.merchant_profile\n)\n%}",
+  "merchant:task/scoreMerchantOnboarding/approved": "{%\n(\n  $states.result.Payload.approved\n)\n%}",
+  "merchant:task/scoreMerchantOnboarding/band": "{%\n(\n  $states.result.Payload.band\n)\n%}",
+  "merchant:task/scoreMerchantOnboarding/reasons": "{%\n(\n  $states.result.Payload.reasons\n)\n%}",
+  "merchant:task/scoreMerchantOnboarding/source": "{%\n(\n  \"risk_engine\"\n)\n%}",
+  "merchant:choice/isMerchantAutoApproved": "{%\n(\n  ($states.input.decision.approved = true)\n)\n%}",
+  "merchant:parallel/mergeContextOutput": "{%\n(\n  {\"merchant_context\": $states.input.parallel_results, \"merged\": true}\n)\n%}",
+  "merchant:parallel/isEligible": "{%\n(\n  true\n)\n%}"
 }

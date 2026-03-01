@@ -90,3 +90,23 @@ npm run test:conditions
 ```
 
 This suite verifies that `and(...)`, `or(...)`, `all(...)`, `any(...)`, `eq(...)`, `neq(...)`, and `whenFalse(...)` render the expected JSONata conditions without introducing extra compiled slots, and that empty helper calls fail fast.
+
+## Task catch handler tests
+
+Run the task catch suite with:
+
+```bash
+npm run test:catch
+```
+
+This suite verifies that `catch(...)` and `catchAll(...)` emit ASL `Catch` entries correctly and that inline recovery `subflow(...)` targets auto-wire back into the following top-level step.
+
+
+## Task result controls tests
+
+Run `npm run test:task-controls` to validate emission of `resultSelector`, `resultPath`, `timeoutSeconds`, and `heartbeatSeconds`.
+
+
+## Parallel tests
+
+Run `npm run test:parallel` to validate `parallel(...)` emission, branch handling, and inline catch recovery.

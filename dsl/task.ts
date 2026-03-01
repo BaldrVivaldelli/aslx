@@ -1,5 +1,8 @@
+import type { PassContent, PassNode } from "./steps";
+import { PassBuilder } from "./steps";
 import type { JsonataSlot } from "./jsonata";
-import type { PassContent } from "./steps";
+import type { SubflowNode } from "./subflow";
+import { SubflowBuilder, subflow } from "./subflow";
 
 export type StepName = string;
 
@@ -21,16 +24,35 @@ export type RetryPolicy = {
   JitterStrategy?: "FULL" | "NONE";
 };
 
+export type CatchPolicy = {
+  ErrorEquals: string[];
+  Next: StepName;
+  ResultPath?: string;
+  inlineTarget?: SubflowNode;
+};
+
 export type TaskNode = {
   kind: "task";
   name: string;
   resource: string;
   arguments?: TaskArgumentValue;
+  resultSelector?: TaskArgumentValue;
+  resultPath?: string;
   output?: PassContent;
+  timeoutSeconds?: number;
+  heartbeatSeconds?: number;
   retry?: RetryPolicy[];
+  catch?: CatchPolicy[];
   comment?: string;
   next?: StepName;
   end?: true;
+};
+
+export type InlineCatchStepLike = PassBuilder | PassNode | TaskBuilder | TaskNode;
+export type InlineCatchTarget = InlineCatchStepLike | SubflowBuilder | SubflowNode;
+export type CatchTarget = StepName | InlineCatchTarget;
+export type CatchOptions = {
+  resultPath?: string;
 };
 
 function isTaskArgumentRecord(value: TaskArgumentValue | undefined): value is Record<string, TaskArgumentValue> {
@@ -38,6 +60,104 @@ function isTaskArgumentRecord(value: TaskArgumentValue | undefined): value is Re
     && typeof value === "object"
     && !Array.isArray(value)
     && !("__kind" in value);
+}
+
+function clonePassNode(node: PassNode): PassNode {
+  return {
+    ...node,
+    assign: node.assign ? { ...node.assign } : undefined,
+  };
+}
+
+function cloneTaskArgumentValue(value: TaskNode["arguments"]): TaskNode["arguments"] {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneTaskArgumentValue(item) as never);
+  }
+  if (value !== null && typeof value === "object" && !("__kind" in value)) {
+    const out: Record<string, NonNullable<TaskNode["arguments"]>> = {};
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = cloneTaskArgumentValue(item as NonNullable<TaskNode["arguments"]>);
+    }
+    return out as TaskNode["arguments"];
+  }
+  return value;
+}
+
+function cloneTaskNode(node: TaskNode): TaskNode {
+  return {
+    ...node,
+    arguments: cloneTaskArgumentValue(node.arguments),
+    resultSelector: cloneTaskArgumentValue(node.resultSelector),
+    retry: node.retry ? node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] })) : undefined,
+    catch: node.catch ? node.catch.map(cloneCatchPolicy) : undefined,
+  };
+}
+
+function cloneSubflowNode(node: SubflowNode): SubflowNode {
+  return {
+    kind: "subflow",
+    states: node.states.map((state) => {
+      if (state.kind === "pass") return clonePassNode(state);
+      if (state.kind === "task") return cloneTaskNode(state);
+      return {
+        ...state,
+        choices: state.choices.map((rule) => ({
+          ...rule,
+          inlineTarget: rule.inlineTarget ? cloneSubflowNode(rule.inlineTarget) : undefined,
+        })),
+        otherwiseInlineTarget: state.otherwiseInlineTarget ? cloneSubflowNode(state.otherwiseInlineTarget) : undefined,
+      };
+    }),
+  };
+}
+
+function cloneCatchPolicy(policy: CatchPolicy): CatchPolicy {
+  return {
+    ...policy,
+    ErrorEquals: [...policy.ErrorEquals],
+    inlineTarget: policy.inlineTarget ? cloneSubflowNode(policy.inlineTarget) : undefined,
+  };
+}
+
+function isPassBuilder(target: InlineCatchStepLike): target is PassBuilder {
+  return target instanceof PassBuilder;
+}
+
+function isTaskBuilder(target: InlineCatchStepLike): target is TaskBuilder {
+  return target instanceof TaskBuilder;
+}
+
+function isSubflowBuilder(target: InlineCatchTarget): target is SubflowBuilder {
+  return target instanceof SubflowBuilder;
+}
+
+function isSubflowNode(target: InlineCatchTarget): target is SubflowNode {
+  return typeof target === "object" && target !== null && "kind" in target && target.kind === "subflow";
+}
+
+function materializeInlineCatchStep(target: InlineCatchStepLike): PassNode | TaskNode {
+  if (isPassBuilder(target)) return target.build();
+  if (isTaskBuilder(target)) return target.build();
+  return target.kind === "pass" ? clonePassNode(target) : cloneTaskNode(target);
+}
+
+function materializeInlineCatchTarget(target: InlineCatchTarget): SubflowNode {
+  if (isSubflowBuilder(target)) return target.build();
+  if (isSubflowNode(target)) return cloneSubflowNode(target);
+  return subflow(materializeInlineCatchStep(target)).build();
+}
+
+function materializeCatchTarget(target: CatchTarget): { next: StepName; inlineTarget?: SubflowNode } {
+  if (typeof target === "string") {
+    return { next: target };
+  }
+
+  const inlineTarget = materializeInlineCatchTarget(target);
+  return {
+    next: inlineTarget.states[0].name,
+    inlineTarget,
+  };
 }
 
 export class TaskBuilder {
@@ -85,9 +205,53 @@ export class TaskBuilder {
     return this;
   }
 
+  resultSelector(selector: TaskArgumentValue): this {
+    this.node.resultSelector = selector;
+    return this;
+  }
+
+  resultPath(path: string): this {
+    this.node.resultPath = path;
+    return this;
+  }
+
+
   retry(policy: RetryPolicy | RetryPolicy[]): this {
     this.node.retry = Array.isArray(policy) ? [...policy] : [policy];
     return this;
+  }
+
+  timeoutSeconds(seconds: number): this {
+    this.node.timeoutSeconds = seconds;
+    return this;
+  }
+
+  heartbeatSeconds(seconds: number): this {
+    this.node.heartbeatSeconds = seconds;
+    return this;
+  }
+
+
+  catch(errorEquals: string | string[], target: CatchTarget, options: CatchOptions = {}): this {
+    const normalizedErrors = Array.isArray(errorEquals) ? [...errorEquals] : [errorEquals];
+    if (normalizedErrors.length === 0) {
+      throw new Error(`Task state ${this.node.name} cannot declare an empty catch policy.`);
+    }
+
+    const materialized = materializeCatchTarget(target);
+    const policy: CatchPolicy = {
+      ErrorEquals: normalizedErrors,
+      Next: materialized.next,
+      ...(options.resultPath ? { ResultPath: options.resultPath } : {}),
+      ...(materialized.inlineTarget ? { inlineTarget: materialized.inlineTarget } : {}),
+    };
+
+    this.node.catch = [...(this.node.catch ?? []), policy];
+    return this;
+  }
+
+  catchAll(target: CatchTarget, options: CatchOptions = {}): this {
+    return this.catch(["States.ALL"], target, options);
   }
 
   comment(value: string): this {
@@ -121,8 +285,13 @@ export class TaskBuilder {
       name: this.node.name,
       resource: this.node.resource,
       arguments: this.node.arguments,
+      resultSelector: this.node.resultSelector,
+      resultPath: this.node.resultPath,
       output: this.node.output,
+      timeoutSeconds: this.node.timeoutSeconds,
+      heartbeatSeconds: this.node.heartbeatSeconds,
       retry: this.node.retry ? [...this.node.retry] : undefined,
+      catch: this.node.catch ? this.node.catch.map(cloneCatchPolicy) : undefined,
       comment: this.node.comment,
       next: this.node.next,
       ...(this.node.end === true ? { end: true } : {}),

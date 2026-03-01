@@ -1,14 +1,11 @@
-# ASLX
+# 🧠 TS → JSONata Compiler (SWC Edition)
 
-A TypeScript DSL and compiler for JSONata-first AWS Step Functions authoring.
+Write **normal TypeScript** → get **pure JSONata** for AWS Step
+Functions.
 
-Package name: `aslx`
+This project gives you a real production‑grade pipeline:
 
-Write **normal TypeScript** and a small workflow DSL -> get **pure JSONata** slots and emitted **ASL** machines.
-
-This project gives you a real production-grade pipeline:
-
-TS DSL -> SWC AST -> JSONata IR -> JSONata string -> ASL machine JSON
+TS DSL ➜ SWC AST ➜ JSONata IR ➜ JSONata string ➜ (future) Rust ➜ YAML
 
 ------------------------------------------------------------------------
 
@@ -49,12 +46,16 @@ TS DSL -> SWC AST -> JSONata IR -> JSONata string -> ASL machine JSON
       state-machine.ts    → Top-level graph builder + top-level metadata
 
     docs/
-      quickstart.md      → 4 small examples
-      dsl-semantics.md    → Naming and semantics guide
+      quickstart.md        → Small copy-pasteable examples
+      dsl-semantics.md     → Naming and semantics guide
+      official-example.md  → Recommended end-to-end business flow
+      validation.md        → Semantic validation rules and pipeline
 
     compiler/
-      compile-jsonata.ts  → Slot compiler
-      build-machine.ts    → ASL machine emitter
+      compile-jsonata.ts        → Slot compiler
+      normalize-state-machine.ts → Graph normalization
+      validate-state-machine.ts  → Semantic validation
+      build-machine.ts           → ASL emission CLI
 
     example/
       infra.ts            → Real usage
@@ -67,6 +68,8 @@ TS DSL -> SWC AST -> JSONata IR -> JSONata string -> ASL machine JSON
 
 - [Quickstart](docs/quickstart.md)
 - [DSL semantics](docs/dsl-semantics.md)
+- [Official example](docs/official-example.md)
+- [Validation](docs/validation.md)
 
 Start here if you want the meaning of each builder and the naming rules:
 
@@ -84,16 +87,6 @@ This document explains:
 ------------------------------------------------------------------------
 
 ## What you will find in the guide
-
-If you publish this package to npm, use:
-
-```bash
-npm install aslx
-```
-
-If you are working from source in this repo, keep using `npm install`.
-
-
 
 - **Concepts**: what is an expression, state, decision, inline subflow, and top-level graph
 - **DSL -> ASL mapping**: how `content`, `assign`, `whenTrue`, and `otherwise` are emitted
@@ -140,16 +133,9 @@ This emits top-level ASL metadata while keeping `Pass` authoring focused on `Out
 
 # ⚙️ Install
 
-From source:
-
 ``` bash
 npm install
-```
-
-As an npm package name, this project is intended to publish as:
-
-``` bash
-npm install aslx
+npm i @swc/core tsx
 ```
 
 ------------------------------------------------------------------------
@@ -159,25 +145,6 @@ npm install aslx
 ``` bash
 npx tsx compiler/compile-jsonata.ts example/infra.ts
 ```
-
-------------------------------------------------------------------------
-
-# 🏭 Build full state machines
-
-``` bash
-npm run build:machine
-```
-
-This does two things:
-
-- compiles JSONata slots to `build/slots.json`
-- emits every exported `stateMachine(...)` builder from `example/infra.ts` into `build/machines/*.json`
-
-Example outputs:
-
-- `build/machines/echo-flow.json`
-- `build/machines/example-flow.json`
-- `build/machines/example-flow-with-subflows.json`
 
 ------------------------------------------------------------------------
 
@@ -220,6 +187,35 @@ reduce(arr, (acc, x) => ..., init)
 ``` ts
 obj[key] → $lookup(obj,key)
 ```
+
+------------------------------------------------------------------------
+
+# ✅ Validation pipeline
+
+``` bash
+npm run validate:machine
+npm run build:machine
+npm run test:golden
+npm run test:validator:negative
+npm run test:compiler:negative
+```
+
+- `validate:machine` checks graph correctness without writing ASL files
+- `build:machine` validates first and only emits JSON when the graph is valid
+- `test:golden` protects generated slots and machine JSON snapshots
+- `test:validator:negative` protects semantic validation error coverage
+- `test:compiler:negative` protects slot compiler subset errors and diagnostics
+
+Validation currently checks:
+
+- missing transition targets
+- unreachable states
+- duplicate state names
+- invalid `StartAt`
+- missing `Task.resource`
+- conflicting `next` / `end` usage
+
+------------------------------------------------------------------------
 
 ------------------------------------------------------------------------
 
@@ -289,6 +285,7 @@ This lets you:
 -   Plug a **Rust backend for YAML**
 -   Ship a **real platform product**
 
+Exactly your Osiris/Nave vision.
 
 ------------------------------------------------------------------------
 
@@ -311,3 +308,42 @@ JSONata is the **execution language**
 You own the **compiler layer**
 
 That's the power move.
+
+## Task support
+
+The project now includes a generic `task(...)` builder for aws-sdk tasks and `lambdaInvoke(...)` as focused sugar for Lambda Step Functions tasks. See `example/infra.ts` and `docs/quickstart.md` for concrete examples.
+
+## Golden tests
+
+Use golden snapshot tests to lock down the emitted `slots.json` and `machines/*.json` artifacts.
+
+```bash
+npm run test:golden
+```
+
+If you intentionally changed the DSL, compiler, normalizer, or emitter and want to refresh the expected outputs:
+
+```bash
+npm run test:golden:update
+```
+
+Snapshots live under:
+
+- `testdata/golden/slots.json`
+- `testdata/golden/machines/*.json`
+
+
+## AWS SDK sugar
+
+Use `awsSdkTask(...)` when you want to express an AWS SDK integration with `.service(...)` and `.action(...)` instead of spelling the full resource ARN manually.
+
+```ts
+awsSdkTask("GetPackage")
+  .service("dynamodb")
+  .action("getItem")
+  .arguments({
+    TableName: "${file(resources/index.json):tables.providers}",
+    Key: packageKey(),
+  })
+  .output(getPackageOutput());
+```

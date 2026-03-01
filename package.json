@@ -1,5 +1,5 @@
 {
-  "name": "aslx",
+  "name": "ts-jsonata-compiler",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,15 +9,22 @@
     "node": ">=20"
   },
   "scripts": {
-    "compile": "tsx compiler/compile-jsonata.ts example/infra.ts",
-    "build:slots": "tsx compiler/compile-jsonata.ts example/infra.ts --out build/slots.json",
-    "watch": "tsx compiler/compile-jsonata.ts example/infra.ts --out build/slots.json --watch",
+    "compile": "node ./node_modules/tsx/dist/cli.mjs compiler/compile-jsonata.ts example/infra.ts",
+    "build:slots": "node ./node_modules/tsx/dist/cli.mjs compiler/compile-jsonata.ts example/infra.ts --out build/slots.json",
+    "watch": "node ./node_modules/tsx/dist/cli.mjs compiler/compile-jsonata.ts example/infra.ts --out build/slots.json --watch",
     "format": "prettier -w .",
     "lint": "eslint .",
-    "build:machine": "npm run build:slots && tsx compiler/build-machine.ts example/infra.ts --slots build/slots.json --out-dir build/machines"
+    "build:machine": "npm run build:slots && node ./node_modules/tsx/dist/cli.mjs compiler/build-machine.ts example/infra.ts --slots build/slots.json --out-dir build/machines",
+    "validate:machine": "node ./node_modules/tsx/dist/cli.mjs compiler/validate-machine.ts example/infra.ts",
+    "test:golden": "node ./node_modules/tsx/dist/cli.mjs tests/golden.ts",
+    "test:golden:update": "node ./node_modules/tsx/dist/cli.mjs tests/golden.ts --update",
+    "test:validator:negative": "node ./node_modules/tsx/dist/cli.mjs tests/validator-negative.ts",
+    "test:compiler:negative": "node ./node_modules/tsx/dist/cli.mjs tests/compiler-negative.ts",
+    "test:aws-sdk": "node ./node_modules/tsx/dist/cli.mjs tests/aws-sdk-builder.ts"
   },
   "dependencies": {
-    "@swc/core": "^1.5.29"
+    "@swc/core": "^1.5.29",
+    "@swc/core-linux-x64-gnu": "^1.15.17"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

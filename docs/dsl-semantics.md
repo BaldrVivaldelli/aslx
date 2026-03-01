@@ -2,9 +2,7 @@
 
 ## Purpose
 
-**ASLX** is an authoring layer for AWS Step Functions built in TypeScript.
-
-The intended npm package name is `aslx`.
+This DSL is an authoring layer for AWS Step Functions built in TypeScript.
 
 It separates two concerns:
 
@@ -492,3 +490,21 @@ stateMachine("EchoFlow")
 ```
 
 This is intentionally a concern of the top-level graph builder, not of `pass(...)` or `choice(...)`.
+
+## Task
+
+`task(name)` models a Step Functions `Task` state. It is intentionally generic:
+
+For Lambda integrations, prefer `lambdaInvoke(name)` as a focused convenience builder. It preconfigures `Resource` as `arn:aws:states:::lambda:invoke` and exposes `functionName(...)` plus `payload(...)` helpers while still emitting a regular `Task` state.
+
+- `resource(...)` defines the Task resource ARN.
+- `arguments(...)` accepts a recursive object tree with literals and `slot(...)` values mixed together.
+- `output(...)` represents the full `Output` of the state and is best expressed as a single slot.
+- `retry(...)` mirrors Step Functions retry policies.
+
+This keeps the core DSL small while still covering aws-sdk tasks, Lambda invoke tasks, and future service integrations.
+
+
+## `awsSdkTask(...)`
+
+`awsSdkTask(...)` is the preferred sugar for singular AWS SDK integrations. It composes into the same task model used by `task(...)`, but lets you author resources as `.service(...)` + `.action(...)`.

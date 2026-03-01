@@ -1057,8 +1057,10 @@ const absFile = path.resolve(input);
 const run = () => {
     try {
         compileOnce(absFile, outFile);
+        process.exitCode = 0;
     } catch (e: any) {
         console.error(String(e?.message ?? e));
+        process.exitCode = 1;
     }
 };
 

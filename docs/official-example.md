@@ -1,9 +1,11 @@
+Use `awsSdkTask(...)` for singular AWS SDK operations and `lambdaInvoke(...)` for domain-heavy or collection-oriented preparation.
+
 # Official example
 
 This is the recommended shape of the DSL for a realistic business workflow.
 
 - use **AWS SDK tasks** for singular infrastructure operations
-- use **Lambda tasks** for collection-oriented or domain-heavy preparation
+- use **Lambda invoke tasks** for collection-oriented or domain-heavy preparation
 - use **Choice** for explicit control-flow decisions
 - use **Pass** for simple terminal responses
 
@@ -16,9 +18,10 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
     "Loads a package, prepares and validates its modules, and computes the final result.",
   )
   .startWith(
-    task("GetPackage")
+    awsSdkTask("GetPackage")
       .comment("Loads the package definition from DynamoDB.")
-      .resource("arn:aws:states:::aws-sdk:dynamodb:getItem")
+      .service("dynamodb")
+      .action("getItem")
       .arguments({
         TableName: "${file(resources/index.json):tables.providers}",
         Key: packageKey(),
@@ -26,16 +29,13 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
       .output(getPackageOutput()),
   )
   .then(
-    task("PreparePackageModules")
+    lambdaInvoke("PreparePackageModules")
       .comment(
         "Resolves, normalizes, and validates the package modules through a domain Lambda.",
       )
-      .resource("arn:aws:states:::lambda:invoke")
-      .arguments({
-        FunctionName: "${file(resources/index.json):cross_lambdas.load_modules}",
-        Payload: {
-          input: statesInputSlot(),
-        },
+      .functionName("${file(resources/index.json):cross_lambdas.load_modules}")
+      .payload({
+        input: statesInputSlot(),
       })
       .output(preparePackageModulesOutput()),
   )
@@ -46,14 +46,11 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
       .otherwise("FailValidation"),
   )
   .then(
-    task("ComputeMany")
+    lambdaInvoke("ComputeMany")
       .comment("Invokes the computation Lambda with the prepared input.")
-      .resource("arn:aws:states:::lambda:invoke")
-      .arguments({
-        FunctionName: "${file(resources/index.json):cross_lambdas.methods}",
-        Payload: {
-          computeMany: statesInputSlot(),
-        },
+      .functionName("${file(resources/index.json):cross_lambdas.methods}")
+      .payload({
+        computeMany: statesInputSlot(),
       })
       .output(computeManyOutput())
       .retry(lambdaServiceRetry())
@@ -117,7 +114,8 @@ export function computeManyOutput() {
 
 This example captures the intended design of the DSL:
 
-- **`task(...)`** models real side effects
+- **`task(...)`** models real side effects in a generic way
+- **`lambdaInvoke(...)`** makes Lambda tasks concise without changing the emitted ASL
 - **`arguments(...)`** keeps AWS and Lambda payloads readable
 - **`output(slot(...))`** encourages full output transformations instead of mixing inline fragments
 - **`choice(...)`** makes branching explicit and semantic

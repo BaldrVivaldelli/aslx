@@ -1,5 +1,5 @@
 import type { SlotRegistry } from "../compiler/emit-asl";
-import { emitStateMachine as emitAslStateMachine } from "../compiler/emit-asl";
+import { buildStateMachineDefinition } from "../compiler/build-state-machine-definition";
 import type { ChoiceNode, ChoiceRule } from "./choice";
 import { ChoiceBuilder } from "./choice";
 import type { PassNode } from "./steps";
@@ -218,7 +218,7 @@ export class StateMachineBuilder {
 
   toDefinition(slots: SlotRegistry) {
     const graph = this.build();
-    return emitAslStateMachine(graph, slots);
+    return buildStateMachineDefinition(graph, slots);
   }
 }
 

@@ -1,0 +1,110 @@
+{
+  "StartAt": "ValidateInputNested",
+  "States": {
+    "ValidateInputNested": {
+      "Type": "Pass",
+      "Output": {
+        "ok": true,
+        "from": "ValidateInputNested"
+      },
+      "Assign": {
+        "validation": "{% (\n  $bar := function(){ \"BAR\" };\n\n  $foo := function($x){ (\"DEFAULT_\" & $x) };\n\n  $u__default := function($x){ (\"DEFAULT_\" & $x) };\n\n  $u__foo_bar := function(){ \"FOO_BAR\" };\n\n  $EMPTY_OBJ := {};\n\n  $EMPTY_PARAMS := {};\n\n  $states := $states;\n\n  $coalesce := function($a,$b){ ($exists($a) ? $a : $b) };\n\n  $body := $coalesce($states.input.body, $EMPTY_OBJ);\n\n  $params := $coalesce($states.input.params, $EMPTY_PARAMS);\n\n  $pathParams := $coalesce($params.path, $EMPTY_OBJ);\n\n  $qs := $coalesce($params.querystring, $EMPTY_OBJ);\n\n  $schema := {\"alias\": {\"type\": \"string\", \"required\": true}, \"slug\": {\"type\": \"string\", \"required\": true}, \"overrides\": {\"type\": \"object\", \"required\": false}};\n\n  $schemaKeys := $keys($schema);\n\n  $payload := $merge([$qs, $pathParams, $body]);\n\n  $missing := $schemaKeys[( $def := $lookup($schema, $); $v := $lookup($payload, $); (($def.required = true) and ($exists($v) = false)) )];\n\n  $clean := $reduce($schemaKeys, function($acc,$k){ ( $v := $lookup($payload, $k); ($exists($v) ? $merge([$acc, {($k): $v}]) : $acc) ) }, $EMPTY_OBJ);\n\n  $noteA := $bar();\n\n  $noteB := $foo(\"X\");\n\n  $noteC := $u__foo_bar();\n\n  $noteD := $u__default(\"Y\");\n\n  $numericPlus := (1 + 2);\n\n  $stringyPlus := (\"A\" & \"B\");\n\n  {\"valid\": ($count($missing) = 0), \"input\": $clean, \"errors\": {\"missing\": $missing}, \"notes\": {\"noteA\": $noteA, \"noteB\": $noteB, \"noteC\": $noteC, \"noteD\": $noteD}, \"demoKey\": (\"ALIAS#\" & $uppercase(\"visa\")), \"numericPlus\": $numericPlus, \"stringyPlus\": $stringyPlus}\n) %}"
+      },
+      "Next": "RouteValidationNested"
+    },
+    "RouteValidationNested": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% (\n  $states := $states;\n\n  $validation := $states.input.validation;\n\n  ($exists($validation) and ($validation.valid = true))\n) %}",
+          "Next": "PersistDataNested"
+        }
+      ],
+      "Default": "FailValidationNested"
+    },
+    "PersistDataNested": {
+      "Type": "Pass",
+      "Output": {
+        "status": "persisted"
+      },
+      "Next": "ShouldAuditSuccess"
+    },
+    "ShouldAuditSuccess": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% (\n  $states := $states;\n\n  $validation := $states.input.validation;\n\n  ($exists($validation) and ($validation.valid = true))\n) %}",
+          "Next": "AuditSuccessNested"
+        }
+      ],
+      "Default": "SkipSuccessAuditNested"
+    },
+    "AuditSuccessNested": {
+      "Type": "Pass",
+      "Output": {
+        "audit": "success"
+      },
+      "Next": "PublishSuccessNested"
+    },
+    "PublishSuccessNested": {
+      "Type": "Pass",
+      "Output": {
+        "publish": "success"
+      },
+      "Next": "AfterNestedSubflows"
+    },
+    "SkipSuccessAuditNested": {
+      "Type": "Pass",
+      "Output": {
+        "audit": "skipped"
+      },
+      "Next": "AfterNestedSubflows"
+    },
+    "FailValidationNested": {
+      "Type": "Pass",
+      "Output": {
+        "ok": false,
+        "reason": "validation_failed"
+      },
+      "Next": "ShouldAuditFailure"
+    },
+    "ShouldAuditFailure": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% not((\n  $states := $states;\n\n  $validation := $states.input.validation;\n\n  ($exists($validation) and ($validation.valid = true))\n)) %}",
+          "Next": "AuditFailureNested"
+        }
+      ],
+      "Default": "SkipFailureAuditNested"
+    },
+    "AuditFailureNested": {
+      "Type": "Pass",
+      "Output": {
+        "audit": "failure"
+      },
+      "Next": "PublishFailureNested"
+    },
+    "PublishFailureNested": {
+      "Type": "Pass",
+      "Output": {
+        "publish": "failure"
+      },
+      "Next": "AfterNestedSubflows"
+    },
+    "SkipFailureAuditNested": {
+      "Type": "Pass",
+      "Output": {
+        "audit": "skipped"
+      },
+      "Next": "AfterNestedSubflows"
+    },
+    "AfterNestedSubflows": {
+      "Type": "Pass",
+      "Output": {
+        "joined": true
+      },
+      "End": true
+    }
+  }
+}

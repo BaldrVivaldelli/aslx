@@ -33,8 +33,15 @@ export type TaskNode = {
   end?: true;
 };
 
+function isTaskArgumentRecord(value: TaskArgumentValue | undefined): value is Record<string, TaskArgumentValue> {
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && !("__kind" in value);
+}
+
 export class TaskBuilder {
-  private readonly node: Partial<TaskNode> & Pick<TaskNode, "kind" | "name">;
+  protected readonly node: Partial<TaskNode> & Pick<TaskNode, "kind" | "name">;
 
   constructor(name: string) {
     this.node = {
@@ -50,6 +57,26 @@ export class TaskBuilder {
 
   arguments(argumentsValue: TaskArgumentValue): this {
     this.node.arguments = argumentsValue;
+    return this;
+  }
+
+  argument(name: string, value: TaskArgumentValue): this {
+    const current = this.node.arguments;
+
+    if (current === undefined) {
+      this.node.arguments = { [name]: value };
+      return this;
+    }
+
+    if (!isTaskArgumentRecord(current)) {
+      throw new Error(`Task state ${this.node.name} cannot merge argument ${name} into non-object arguments.`);
+    }
+
+    this.node.arguments = {
+      ...current,
+      [name]: value,
+    };
+
     return this;
   }
 
@@ -98,7 +125,7 @@ export class TaskBuilder {
       retry: this.node.retry ? [...this.node.retry] : undefined,
       comment: this.node.comment,
       next: this.node.next,
-      end: this.node.end,
+      ...(this.node.end === true ? { end: true } : {}),
     };
   }
 }

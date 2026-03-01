@@ -1,0 +1,78 @@
+{
+  "QueryLanguage": "JSONata",
+  "Comment": "Loads a package, prepares and validates its modules, and computes the final result.",
+  "StartAt": "GetPackage",
+  "States": {
+    "GetPackage": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:getItem",
+      "Comment": "Loads the package definition from DynamoDB.",
+      "Arguments": {
+        "TableName": "${file(resources/index.json):tables.providers}",
+        "Key": "{% (\n  $states.input.pk_sk\n) %}"
+      },
+      "Output": "{% (\n  $merge([$states.input, {\"query_result\": $states.result}])\n) %}",
+      "Next": "PreparePackageModules"
+    },
+    "PreparePackageModules": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Resolves, normalizes, and validates the package modules through a domain Lambda.",
+      "Arguments": {
+        "FunctionName": "${file(resources/index.json):cross_lambdas.load_modules}",
+        "Payload": {
+          "input": "{% (\n  $states.input\n) %}"
+        }
+      },
+      "Output": "{% (\n  {\"input\": $states.result.Payload.input, \"items_found\": $states.result.Payload.items_found, \"all_modules_valid\": $states.result.Payload.all_modules_valid}\n) %}",
+      "Next": "ArePreparedModulesValid"
+    },
+    "ArePreparedModulesValid": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% (\n  ($states.input.all_modules_valid = true)\n) %}",
+          "Next": "ComputeMany"
+        }
+      ],
+      "Comment": "Routes to the compute step only when the prepared modules are valid.",
+      "Default": "FailValidation"
+    },
+    "ComputeMany": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Invokes the computation Lambda with the prepared input.",
+      "Arguments": {
+        "FunctionName": "${file(resources/index.json):cross_lambdas.methods}",
+        "Payload": {
+          "computeMany": "{% (\n  $states.input\n) %}"
+        }
+      },
+      "Output": "{% (\n  $states.result.Payload\n) %}",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "End": true
+    },
+    "FailValidation": {
+      "Type": "Pass",
+      "Comment": "Terminates the flow when the prepared modules are invalid.",
+      "Output": {
+        "ok": false,
+        "reason": "invalid_modules"
+      },
+      "End": true
+    }
+  }
+}

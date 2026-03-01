@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { StateMachineBuilder } from '../dsl/state-machine';
+import { buildStateMachineDefinition } from './build-state-machine-definition';
 
 type SlotRegistry = Record<string, string>;
 
@@ -90,7 +91,7 @@ async function main() {
   const written: string[] = [];
 
   for (const [exportName, builder] of builders) {
-    const definition = builder.toDefinition(slots);
+    const definition = buildStateMachineDefinition(builder.build(), slots);
     const filename = `${toFileStem(exportName)}.json`;
     const filePath = path.join(outDir, filename);
     await writeFile(filePath, `${JSON.stringify(definition, null, 2)}\n`, 'utf8');
@@ -105,7 +106,7 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
   console.error(message);
   process.exitCode = 1;
 });

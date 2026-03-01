@@ -9,12 +9,15 @@ import {
   reduce,
   $states,
 } from "../dsl/jsonata";
+import { emitStateMachine } from "../compiler/emit-asl";
 import { subflow } from "../dsl/subflow";
 import { choice } from "../dsl/choice";
 import { stateMachine } from "../dsl/state-machine";
 import { pass } from "../dsl/steps";
 import type { RetryPolicy } from "../dsl/task";
 import { task } from "../dsl/task";
+import { lambdaInvoke } from "../dsl/lambda";
+import { awsSdkTask } from "../dsl/aws-sdk";
 
 import { bar } from "./lib/udfs";
 import foo from "./lib/udfs";
@@ -43,12 +46,6 @@ type StatesInput = {
   };
 };
 
-type PreparedModulesPayload = {
-  input: unknown;
-  items_found: unknown;
-  all_modules_valid?: boolean;
-};
-
 export function exampleSlot() {
   return slot("example:Validate/param:validationExpr", () => {
     const EMPTY_OBJ: JsonObject = {};
@@ -70,6 +67,7 @@ export function exampleSlot() {
     };
 
     const schemaKeys = keys(schema);
+
     const payload = merge([qs, pathParams, body]);
 
     const missing = schemaKeys.filter((k) => {
@@ -114,6 +112,7 @@ export function isValidationOk() {
     return exists(validation) && validation.valid === true;
   });
 }
+
 
 export function echoOutput() {
   return slot("example:Echo/output", () => ({
@@ -216,6 +215,7 @@ export const exampleFlowWithJoin = stateMachine("ExampleFlowWithJoin")
     }),
   );
 
+
 export const exampleFlowWithSubflows = stateMachine("ExampleFlowWithSubflows")
   .queryLanguage("JSONata")
   .comment("Choice subflows with nested decisions and an explicit join")
@@ -260,9 +260,128 @@ export const exampleFlowWithSubflows = stateMachine("ExampleFlowWithSubflows")
     }),
   );
 
-export const exampleFlowWithNestedSubflows = stateMachine("ExampleFlowWithNestedSubflows")
+
+export function packageKey() {
+  return slot("package:task/getPackage/key", () => ($states as { input: { pk_sk: unknown } }).input.pk_sk);
+}
+
+export function getPackageOutput() {
+  return slot("package:task/getPackage/output", () =>
+    merge([
+      ($states as { input: Record<string, unknown> }).input,
+      { query_result: ($states as { result: unknown }).result },
+    ]),
+  );
+}
+
+
+export function statesInputSlot() {
+  return slot("package:common/statesInput", () => ($states as { input: unknown }).input);
+}
+
+export function computeManyOutput() {
+  return slot("package:task/computeMany/output", () =>
+    ($states as { result: { Payload: unknown } }).result.Payload,
+  );
+}
+
+export function lambdaServiceRetry(): RetryPolicy {
+  return {
+    ErrorEquals: [
+      "Lambda.ServiceException",
+      "Lambda.AWSLambdaException",
+      "Lambda.SdkClientException",
+      "Lambda.TooManyRequestsException",
+    ],
+    IntervalSeconds: 1,
+    MaxAttempts: 3,
+    BackoffRate: 2,
+    JitterStrategy: "FULL",
+  };
+}
+
+
+export function preparePackageModulesOutput() {
+  return slot("package:task/preparePackageModules/output", () => ({
+    input: (($states as { result: { Payload: { input: unknown; items_found: unknown; all_modules_valid: unknown } } }).result.Payload as any).input,
+    items_found: (($states as { result: { Payload: { input: unknown; items_found: unknown; all_modules_valid: unknown } } }).result.Payload as any).items_found,
+    all_modules_valid: (($states as { result: { Payload: { input: unknown; items_found: unknown; all_modules_valid: unknown } } }).result.Payload as any).all_modules_valid,
+  }));
+}
+
+export function isPreparedModulesValid() {
+  return slot("package:choice/isPreparedModulesValid", () =>
+    (($states as { input: { all_modules_valid?: boolean } }).input.all_modules_valid === true),
+  );
+}
+
+export const packageComputationFlow = stateMachine("PackageComputationFlow")
   .queryLanguage("JSONata")
-  .comment("Nested choice subflows with automatic join wiring")
+  .comment(
+    "Loads a package, prepares and validates its modules, and computes the final result.",
+  )
+  .startWith(
+    awsSdkTask("GetPackage")
+      .comment("Loads the package definition from DynamoDB.")
+      .service("dynamodb")
+      .action("getItem")
+      .arguments({
+        TableName: "${file(resources/index.json):tables.providers}",
+        Key: packageKey(),
+      })
+      .output(getPackageOutput()),
+  )
+  .then(
+    lambdaInvoke("PreparePackageModules")
+      .comment(
+        "Resolves, normalizes, and validates the package modules through a domain Lambda.",
+      )
+      .functionName("${file(resources/index.json):cross_lambdas.load_modules}")
+      .payload({
+        input: statesInputSlot(),
+      })
+      .output(preparePackageModulesOutput()),
+  )
+  .then(
+    choice("ArePreparedModulesValid")
+      .comment("Routes to the compute step only when the prepared modules are valid.")
+      .whenTrue(isPreparedModulesValid(), "ComputeMany")
+      .otherwise("FailValidation"),
+  )
+  .then(
+    lambdaInvoke("ComputeMany")
+      .comment("Invokes the computation Lambda with the prepared input.")
+      .functionName("${file(resources/index.json):cross_lambdas.methods}")
+      .payload({
+        computeMany: statesInputSlot(),
+      })
+      .output(computeManyOutput())
+      .retry(lambdaServiceRetry())
+      .end(),
+  )
+  .then(
+    pass("FailValidation")
+      .comment("Terminates the flow when the prepared modules are invalid.")
+      .content({
+        ok: false,
+        reason: "invalid_modules",
+      })
+      .end(),
+  );
+
+export const exampleSlots = exampleSlot()
+
+export const exampleStateMachine = emitStateMachine(exampleFlow.build(), exampleSlots);
+
+export const exampleStateMachineFromBuilder = exampleFlow.toDefinition(exampleSlots);
+
+
+export const exampleStateMachineWithJoin = emitStateMachine(
+  exampleFlowWithJoin.build(),
+  exampleSlots,
+);
+
+export const exampleFlowWithNestedSubflows = stateMachine("ExampleFlowWithNestedSubflows")
   .startWith(
     pass("ValidateInputNested")
       .assign("validation", exampleSlot())
@@ -334,121 +453,12 @@ export const exampleFlowWithNestedSubflows = stateMachine("ExampleFlowWithNested
     }),
   );
 
-export function packageKey() {
-  return slot("package:task/getPackage/key", () =>
-    ($states as { input: { pk_sk: unknown } }).input.pk_sk,
-  );
-}
+export const exampleStateMachineWithSubflows = emitStateMachine(
+  exampleFlowWithSubflows.build(),
+  exampleSlots,
+);
 
-export function getPackageOutput() {
-  return slot("package:task/getPackage/output", () =>
-    merge([
-      ($states as { input: Record<string, unknown> }).input,
-      { query_result: ($states as { result: unknown }).result },
-    ]),
-  );
-}
-
-export function statesInputSlot() {
-  return slot("package:common/statesInput", () => ($states as { input: unknown }).input);
-}
-
-export function preparePackageModulesOutput() {
-  return slot("package:task/preparePackageModules/output", () => {
-    const payload = ($states as { result: { Payload: PreparedModulesPayload } }).result.Payload;
-
-    return {
-      input: payload.input,
-      items_found: payload.items_found,
-      all_modules_valid: payload.all_modules_valid,
-    };
-  });
-}
-
-export function isPreparedModulesValid() {
-  return slot("package:choice/isPreparedModulesValid", () => {
-    const prepared = ($states as { input: PreparedModulesPayload }).input;
-    const valid = prepared.all_modules_valid;
-    return exists(valid) && valid === true;
-  });
-}
-
-export function computeManyOutput() {
-  return slot("package:task/computeMany/output", () =>
-    ($states as { result: { Payload: unknown } }).result.Payload,
-  );
-}
-
-export function lambdaServiceRetry(): RetryPolicy {
-  return {
-    ErrorEquals: [
-      "Lambda.ServiceException",
-      "Lambda.AWSLambdaException",
-      "Lambda.SdkClientException",
-      "Lambda.TooManyRequestsException",
-    ],
-    IntervalSeconds: 1,
-    MaxAttempts: 3,
-    BackoffRate: 2,
-    JitterStrategy: "FULL",
-  };
-}
-
-export const packageComputationFlow = stateMachine("PackageComputationFlow")
-  .queryLanguage("JSONata")
-  .comment(
-    "Loads a package, prepares and validates its modules, and computes the final result.",
-  )
-  .startWith(
-    task("GetPackage")
-      .comment("Loads the package definition from DynamoDB.")
-      .resource("arn:aws:states:::aws-sdk:dynamodb:getItem")
-      .arguments({
-        TableName: "${file(resources/index.json):tables.providers}",
-        Key: packageKey(),
-      })
-      .output(getPackageOutput()),
-  )
-  .then(
-    task("PreparePackageModules")
-      .comment(
-        "Resolves, normalizes, and validates the package modules through a domain Lambda.",
-      )
-      .resource("arn:aws:states:::lambda:invoke")
-      .arguments({
-        FunctionName: "${file(resources/index.json):cross_lambdas.load_modules}",
-        Payload: {
-          input: statesInputSlot(),
-        },
-      })
-      .output(preparePackageModulesOutput()),
-  )
-  .then(
-    choice("ArePreparedModulesValid")
-      .comment("Routes to the compute step only when the prepared modules are valid.")
-      .whenTrue(isPreparedModulesValid(), "ComputeMany")
-      .otherwise("FailValidation"),
-  )
-  .then(
-    task("ComputeMany")
-      .comment("Invokes the computation Lambda with the prepared input.")
-      .resource("arn:aws:states:::lambda:invoke")
-      .arguments({
-        FunctionName: "${file(resources/index.json):cross_lambdas.methods}",
-        Payload: {
-          computeMany: statesInputSlot(),
-        },
-      })
-      .output(computeManyOutput())
-      .retry(lambdaServiceRetry())
-      .end(),
-  )
-  .then(
-    pass("FailValidation")
-      .comment("Terminates the flow when the prepared modules are invalid.")
-      .content({
-        ok: false,
-        reason: "invalid_modules",
-      })
-      .end(),
-  );
+export const exampleStateMachineWithNestedSubflows = emitStateMachine(
+  exampleFlowWithNestedSubflows.build(),
+  exampleSlots,
+);

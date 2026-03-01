@@ -1,14 +1,10 @@
 # Quickstart
 
-This is a tiny, copy-pasteable tour of **ASLX**.
-
-Package name: `aslx`
+This is a tiny, copy‑pasteable tour of the DSL.
 
 You’ll write TypeScript builders (`pass`, `choice`, `stateMachine`) and JSONata *slots* (`slot(...)`), then emit an AWS Step Functions **ASL** definition.
 
 The `stateMachine(...)` builder can also set top-level ASL metadata like `QueryLanguage` and `Comment`.
-
-If you publish or consume the package through npm, the intended package name is `aslx`.
 
 ---
 
@@ -187,3 +183,66 @@ const definition = emitStateMachine(flow.build(), slots);
 
 For deeper semantics, naming rules, and pitfalls, read:
 - [DSL semantics](./dsl-semantics.md)
+
+## Task examples
+
+The DSL supports generic `task(...)` states, and also includes `lambdaInvoke(...)` as a focused convenience builder for Lambda integrations.
+
+For singular infrastructure operations, keep the task close to the AWS integration shape:
+
+```ts
+task("GetPackage")
+  .comment("Loads the package definition from DynamoDB.")
+  .resource("arn:aws:states:::aws-sdk:dynamodb:getItem")
+  .arguments({
+    TableName: "${file(resources/index.json):tables.providers}",
+    Key: packageKey(),
+  })
+  .output(getPackageOutput());
+```
+
+For Lambda integrations, prefer `lambdaInvoke(...)` over spelling out the integration ARN every time:
+
+```ts
+lambdaInvoke("PreparePackageModules")
+  .comment("Resolves, normalizes, and validates the package modules through a domain Lambda.")
+  .functionName("${file(resources/index.json):cross_lambdas.load_modules}")
+  .payload({
+    input: statesInputSlot(),
+  })
+  .output(preparePackageModulesOutput());
+```
+
+Use `retry(...)` for operational resilience on Lambda integrations:
+
+```ts
+lambdaInvoke("ComputeMany")
+  .comment("Invokes the computation Lambda with the prepared input.")
+  .functionName("${file(resources/index.json):cross_lambdas.methods}")
+  .payload({
+    computeMany: statesInputSlot(),
+  })
+  .output(computeManyOutput())
+  .retry(lambdaServiceRetry())
+  .end();
+```
+
+---
+
+## Official business workflow example
+
+For the recommended end-to-end example using `task(...)`, `lambdaInvoke(...)`, `choice(...)`, and top-level metadata, see [Official example](./official-example.md).
+
+
+## AWS SDK task sugar
+
+```ts
+awsSdkTask("GetPackage")
+  .service("dynamodb")
+  .action("getItem")
+  .arguments({
+    TableName: "${file(resources/index.json):tables.providers}",
+    Key: packageKey(),
+  })
+  .output(getPackageOutput());
+```

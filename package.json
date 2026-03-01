@@ -1,0 +1,30 @@
+{
+  "name": "aslx",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript (SWC) -> JSONata compiler for embedding JSONata in Step Functions authoring workflows.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "compile": "tsx compiler/compile-jsonata.ts example/infra.ts",
+    "build:slots": "tsx compiler/compile-jsonata.ts example/infra.ts --out build/slots.json",
+    "watch": "tsx compiler/compile-jsonata.ts example/infra.ts --out build/slots.json --watch",
+    "format": "prettier -w .",
+    "lint": "eslint .",
+    "build:machine": "npm run build:slots && tsx compiler/build-machine.ts example/infra.ts --slots build/slots.json --out-dir build/machines"
+  },
+  "dependencies": {
+    "@swc/core": "^1.5.29"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.13.0",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

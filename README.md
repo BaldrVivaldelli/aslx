@@ -76,6 +76,9 @@ TS DSL ➜ SWC AST ➜ JSONata IR ➜ JSONata string ➜ (future) Rust ➜ YAML
 - [Choice condition helpers](docs/choice-conditions.md)
 - [Task catch handlers](docs/catch.md)
 - [Task result controls](docs/task-controls.md)
+- [Parallel](docs/parallel.md)
+- [Map](docs/map.md)
+- [AWS SDK tasks](docs/aws-sdk-task.md)
 
 Start here if you want the meaning of each builder and the naming rules:
 

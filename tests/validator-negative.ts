@@ -390,6 +390,80 @@ const tests: Array<{ name: string; run: () => void }> = [
     },
   },
   {
+    name: 'rejects map states missing items',
+    run: () => {
+      const machine = asNormalized({
+        kind: 'stateMachine',
+        name: 'BrokenMapMissingItems',
+        states: [
+          {
+            kind: 'map',
+            name: 'Process',
+            itemProcessor: {
+              kind: 'subflow',
+              states: [
+                { kind: 'pass', name: 'DoWork', end: true },
+              ],
+            },
+            end: true,
+          } as any,
+        ],
+      });
+
+      expectValidationError(machine, ['MAP_MISSING_ITEMS'], [
+        'Map state Process must declare items',
+      ]);
+    },
+  },
+  {
+    name: 'rejects map states missing processors',
+    run: () => {
+      const machine = asNormalized({
+        kind: 'stateMachine',
+        name: 'BrokenMapMissingProcessor',
+        states: [
+          {
+            kind: 'map',
+            name: 'Process',
+            itemsPath: '$.items',
+            end: true,
+          } as any,
+        ],
+      });
+
+      expectValidationError(machine, ['MAP_MISSING_PROCESSOR'], [
+        'Map state Process must declare an itemProcessor',
+      ]);
+    },
+  },
+  {
+    name: 'rejects invalid map item processors',
+    run: () => {
+      const machine = asNormalized({
+        kind: 'stateMachine',
+        name: 'BrokenMapProcessorInvalid',
+        states: [
+          {
+            kind: 'map',
+            name: 'Process',
+            itemsPath: '$.items',
+            itemProcessor: {
+              kind: 'subflow',
+              states: [
+                { kind: 'task', name: 'BrokenTask', end: true } as any,
+              ],
+            },
+            end: true,
+          } as any,
+        ],
+      });
+
+      expectValidationError(machine, ['MAP_PROCESSOR_INVALID'], [
+        'Map itemProcessor is invalid',
+      ]);
+    },
+  },
+  {
     name: 'accepts a valid machine as a control case',
     run: () => {
       const machine = asNormalized(

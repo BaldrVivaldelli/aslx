@@ -18,6 +18,7 @@ import { subflow } from "../dsl/subflow";
 import { choice } from "../dsl/choice";
 import { stateMachine } from "../dsl/state-machine";
 import { parallel } from "../dsl/parallel";
+import { map } from "../dsl/map";
 import { pass } from "../dsl/steps";
 import type { RetryPolicy } from "../dsl/task";
 import { task } from "../dsl/task";
@@ -834,5 +835,242 @@ export const merchantOnboardingParallelFlow = stateMachine("MerchantOnboardingPa
   .then(
     pass("RejectMerchant")
       .content({ ok: false })
+      .end(),
+  );
+
+
+/** ---- Map business example: Validate modules ---- */
+
+type ModuleDescriptor = {
+  alias?: string;
+  slug?: string;
+  overrides?: JsonObject;
+};
+
+type ModulesValidationInput = StatesInput & {
+  modules?: ModuleDescriptor[];
+};
+
+export function modulesValidationMode() {
+  return slot("modules:common/validationMode", () => {
+    const states = $states as { input: ModulesValidationInput };
+    return (states.input.validation as any).mode;
+  });
+}
+
+export function modulesValidationSource() {
+  return slot("modules:common/validationSource", () => {
+    const states = $states as { input: ModulesValidationInput };
+    return (states.input.validation as any).source;
+  });
+}
+
+export function modulesItemsSlot() {
+  return slot("modules:map/items", () => {
+    const states = $states as { input: ModulesValidationInput };
+    const modules = (states.input as any).modules as unknown;
+    return exists(modules) ? (modules as any) : [];
+  });
+}
+
+export function modulesMapItemIndexSlot() {
+  return slot("modules:map/itemIndex", () => {
+    const states = $states as any;
+    return states.context.Map.Item.Index;
+  });
+}
+
+export function modulesMapItemValueSlot() {
+  return slot("modules:map/itemValue", () => {
+    const states = $states as any;
+    return states.context.Map.Item.Value;
+  });
+}
+
+export function moduleIterationIndexSlot() {
+  return slot("modules:map/processor/index", () => {
+    const states = $states as any;
+    return states.input.index;
+  });
+}
+
+export function moduleIterationModuleSlot() {
+  return slot("modules:map/processor/module", () => {
+    const states = $states as any;
+    return states.input.module;
+  });
+}
+
+export function moduleIterationModeSlot() {
+  return slot("modules:map/processor/mode", () => {
+    const states = $states as any;
+    return states.input.mode;
+  });
+}
+
+export function moduleIterationSourceSlot() {
+  return slot("modules:map/processor/source", () => {
+    const states = $states as any;
+    return states.input.source;
+  });
+}
+
+export function validateOneModuleValidSlot() {
+  return slot("modules:task/validateOneModule/valid", () => {
+    const states = $states as any;
+    return states.result.Payload.valid;
+  });
+}
+
+export function validateOneModuleErrorsSlot() {
+  return slot("modules:task/validateOneModule/errors", () => {
+    const states = $states as any;
+    return states.result.Payload.errors;
+  });
+}
+
+export function moduleIterationValidationOutput() {
+  return slot("modules:map/processor/returnValidation", () => {
+    const states = $states as any;
+    return states.input.validation;
+  });
+}
+
+export function areAllModulesValid() {
+  return slot("modules:choice/allValid", () => {
+    const states = $states as any;
+    const validations = states.input.module_validations;
+    const invalid = validations.filter((v: any) => v.valid !== true);
+    return count(invalid) === 0;
+  });
+}
+
+export function invalidModuleValidations() {
+  return slot("modules:choice/invalid", () => {
+    const states = $states as any;
+    const validations = states.input.module_validations;
+    return validations.filter((v: any) => v.valid !== true);
+  });
+}
+
+export function persistValidatedModulesOutput() {
+  return slot("modules:pass/persistValidatedModules/output", () => {
+    const states = $states as any;
+    const validations = states.input.module_validations;
+    return {
+      ok: true,
+      status: "modules_validated",
+      total: count(validations),
+      validations,
+    };
+  });
+}
+
+export function rejectInvalidModulesOutput() {
+  return slot("modules:pass/rejectInvalidModules/output", () => {
+    const states = $states as any;
+    const validations = states.input.module_validations;
+    const invalid = validations.filter((v: any) => v.valid !== true);
+    return {
+      ok: false,
+      reason: "invalid_modules",
+      total: count(validations),
+      invalid_count: count(invalid),
+      invalid,
+    };
+  });
+}
+
+export function failModuleValidationRuntimeOutput() {
+  return slot("modules:pass/failModuleValidationRuntime/output", () => {
+    const states = $states as any;
+    return {
+      ok: false,
+      reason: "module_validation_failed",
+      error: states.input.module_validation_error,
+    };
+  });
+}
+
+export const validateModulesMapFlow = stateMachine("ValidateModulesMapFlow")
+  .queryLanguage("JSONata")
+  .comment(
+    "Validates each requested module using Map + per-item Lambda validation, then routes the request based on aggregated validity.",
+  )
+  .startWith(
+    map("ValidateModules")
+      .comment("Validates each module concurrently and stores the per-item results under $.module_validations.")
+      .items(modulesItemsSlot())
+      .itemSelector({
+        index: modulesMapItemIndexSlot(),
+        module: modulesMapItemValueSlot(),
+        mode: modulesValidationMode(),
+        source: modulesValidationSource(),
+      })
+      .maxConcurrency(20)
+      .itemProcessor(
+        subflow(
+          lambdaInvoke("ValidateOneModule")
+            .comment("Validates one module in the current Map iteration.")
+            .functionName("${file(resources/index.json):cross_lambdas.validate_module}")
+            .payload({
+              index: moduleIterationIndexSlot(),
+              module: moduleIterationModuleSlot(),
+              mode: moduleIterationModeSlot(),
+              source: moduleIterationSourceSlot(),
+            })
+            .resultSelector({
+              index: moduleIterationIndexSlot(),
+              module: moduleIterationModuleSlot(),
+              valid: validateOneModuleValidSlot(),
+              errors: validateOneModuleErrorsSlot(),
+            })
+            .resultPath("$.validation"),
+        ).then(
+          pass("ReturnModuleValidation")
+            .comment("Emits the compact per-module validation object as the iteration output.")
+            .content(moduleIterationValidationOutput())
+            .end(),
+        ),
+      )
+      .resultPath("$.module_validations")
+      .catchAll(
+        subflow(
+          pass("FailModuleValidationRuntime")
+            .comment("Handles Map runtime failures with a stable error payload.")
+            .content(failModuleValidationRuntimeOutput())
+            .end(),
+        ),
+        { resultPath: "$.module_validation_error" },
+      ),
+  )
+  .then(
+    choice("AreModulesValid")
+      .comment(
+        "Accepts only when every module is valid and the request is either strict-mode or manually sourced (and never legacy sourced).",
+      )
+      .whenTrue(
+        all(
+          areAllModulesValid(),
+          any(
+            eq(modulesValidationMode(), "strict"),
+            eq(modulesValidationSource(), "manual"),
+          ),
+          neq(modulesValidationSource(), "legacy"),
+        ),
+        "PersistValidatedModules",
+      )
+      .otherwise("RejectInvalidModules"),
+  )
+  .then(
+    pass("PersistValidatedModules")
+      .comment("Represents the happy path after all modules validated successfully.")
+      .content(persistValidatedModulesOutput())
+      .end(),
+  )
+  .then(
+    pass("RejectInvalidModules")
+      .comment("Returns the invalid module subset when validation fails.")
+      .content(rejectInvalidModulesOutput())
       .end(),
   );

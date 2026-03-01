@@ -1,5 +1,6 @@
 import type { ChoiceNode } from "../dsl/choice";
 import type { ParallelNode } from "../dsl/parallel";
+import type { MapNode } from "../dsl/map";
 import type { PassNode } from "../dsl/steps";
 import type { TaskNode } from "../dsl/task";
 import type { NormalizedStateMachine } from "./normalize-state-machine";
@@ -28,7 +29,15 @@ export type ValidationIssueCode =
   | "PARALLEL_MISSING_TRANSITION"
   | "PARALLEL_INVALID_RESULT_PATH"
   | "PARALLEL_BRANCH_EMPTY"
-  | "PARALLEL_BRANCH_INVALID";
+  | "PARALLEL_BRANCH_INVALID"
+  | "MAP_MISSING_ITEMS"
+  | "MAP_MISSING_PROCESSOR"
+  | "MAP_CONFLICTING_TRANSITION"
+  | "MAP_MISSING_TRANSITION"
+  | "MAP_INVALID_RESULT_PATH"
+  | "MAP_INVALID_MAX_CONCURRENCY"
+  | "MAP_PROCESSOR_EMPTY"
+  | "MAP_PROCESSOR_INVALID";
 
 export type ValidationIssue = {
   severity: ValidationSeverity;
@@ -70,7 +79,7 @@ function visitReachable(
     return;
   }
 
-  if (state.kind === "task" || state.kind === "parallel") {
+  if (state.kind === "task" || state.kind === "parallel" || state.kind === "map") {
     if (state.next) visitReachable(state.next, machine, seen);
     for (const policy of state.catch ?? []) {
       visitReachable(policy.Next, machine, seen);
@@ -218,6 +227,130 @@ function validateParallelState(node: ParallelNode, issues: ValidationIssue[]): v
   validateParallelBranches(node, issues);
 }
 
+
+function materializeMapProcessorMachine(node: MapNode): NormalizedStateMachine {
+  const processor = node.itemProcessor;
+  if (!processor || processor.states.length === 0) {
+    throw new Error(`Map itemProcessor is empty.`);
+  }
+
+  const states = structuredClone(processor.states) as Array<PassNode | TaskNode | ChoiceNode>;
+
+  for (let i = 0; i < states.length; i += 1) {
+    const current = states[i]!;
+    const next = states[i + 1];
+    const fallbackNext = next?.name;
+
+    if (current.kind === "pass" || current.kind === "task") {
+      if (!current.next && current.end !== true) {
+        if (fallbackNext) current.next = fallbackNext;
+        else current.end = true;
+      }
+      continue;
+    }
+
+    if (current.otherwise === undefined && fallbackNext) {
+      current.otherwise = fallbackNext;
+    }
+  }
+
+  return normalizeStateMachine({
+    kind: "stateMachine",
+    name: `${node.name}__itemProcessor`,
+    states,
+  });
+}
+
+function validateMapState(node: MapNode, issues: ValidationIssue[]): void {
+  if (node.items === undefined && node.itemsPath === undefined) {
+    issues.push({
+      severity: "error",
+      code: "MAP_MISSING_ITEMS",
+      stateName: node.name,
+      message: `Map state ${node.name} must declare items(...) (JSONata) or itemsPath(...) (JSONPath).`,
+    });
+  }
+
+  if (node.items !== undefined && node.itemsPath !== undefined) {
+    issues.push({
+      severity: "error",
+      code: "MAP_MISSING_ITEMS",
+      stateName: node.name,
+      message: `Map state ${node.name} cannot declare both items and itemsPath.`,
+    });
+  }
+
+  if (!node.itemProcessor) {
+    issues.push({
+      severity: "error",
+      code: "MAP_MISSING_PROCESSOR",
+      stateName: node.name,
+      message: `Map state ${node.name} must declare an itemProcessor.`,
+    });
+  } else if (node.itemProcessor.states.length === 0) {
+    issues.push({
+      severity: "error",
+      code: "MAP_PROCESSOR_EMPTY",
+      stateName: node.name,
+      path: `States.${node.name}.ItemProcessor`,
+      message: `Map state ${node.name} contains an empty itemProcessor.`,
+    });
+  } else {
+    try {
+      validateStateMachine(materializeMapProcessorMachine(node));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      issues.push({
+        severity: "error",
+        code: "MAP_PROCESSOR_INVALID",
+        stateName: node.name,
+        path: `States.${node.name}.ItemProcessor`,
+        message: `Map itemProcessor is invalid: ${message}`,
+      });
+    }
+  }
+
+  if (node.next && node.end) {
+    issues.push({
+      severity: "error",
+      code: "MAP_CONFLICTING_TRANSITION",
+      stateName: node.name,
+      message: `Map state ${node.name} cannot declare both next and end.`,
+    });
+  }
+
+  if (!node.next && node.end !== true) {
+    issues.push({
+      severity: "error",
+      code: "MAP_MISSING_TRANSITION",
+      stateName: node.name,
+      message: `Map state ${node.name} must declare either next or end.`,
+    });
+  }
+
+  if (node.resultPath !== undefined && (node.resultPath.trim() === "" || !isLikelyJsonPath(node.resultPath))) {
+    issues.push({
+      severity: "error",
+      code: "MAP_INVALID_RESULT_PATH",
+      stateName: node.name,
+      path: `States.${node.name}.ResultPath`,
+      message: `Map state ${node.name} must declare a valid ResultPath like $.results or $.context.results.`,
+    });
+  }
+
+  if (node.maxConcurrency !== undefined && typeof node.maxConcurrency === "number") {
+    if (!isInteger(node.maxConcurrency) || node.maxConcurrency < 0) {
+      issues.push({
+        severity: "error",
+        code: "MAP_INVALID_MAX_CONCURRENCY",
+        stateName: node.name,
+        path: `States.${node.name}.MaxConcurrency`,
+        message: `Map state ${node.name} must declare a non-negative integer MaxConcurrency value.`,
+      });
+    }
+  }
+}
+
 export function collectValidationIssues(machine: NormalizedStateMachine): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
@@ -238,7 +371,8 @@ export function collectValidationIssues(machine: NormalizedStateMachine): Valida
     if (state.kind === "pass") validatePassState(state, issues);
     else if (state.kind === "task") validateTaskState(state, issues);
     else if (state.kind === "choice") validateChoiceState(state, issues);
-    else validateParallelState(state, issues);
+    else if (state.kind === "parallel") validateParallelState(state, issues);
+    else validateMapState(state, issues);
   }
 
   if (!machine.stateMap[machine.startAt]) {

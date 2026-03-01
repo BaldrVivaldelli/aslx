@@ -339,3 +339,26 @@ parallel("PrepareMerchantContext")
   .branch(subflow(lambdaInvoke("LoadRiskProfile").functionName("...").payload({ input: statesInputSlot() })))
   .resultPath("$.parallel_results")
 ```
+
+
+## Map example
+
+Use `map(...)` when you need to run the same workflow for each element and collect an array of results.
+
+```ts
+map("ValidateItems")
+  .items(slot("quickstart:map/items", () => ($states as any).input.items))
+  .itemSelector({
+    index: slot("quickstart:map/itemIndex", () => ($states as any).context.Map.Item.Index),
+    value: slot("quickstart:map/itemValue", () => ($states as any).context.Map.Item.Value),
+  })
+  .maxConcurrency(10)
+  .itemProcessor(
+    subflow(
+      pass("EchoItem").content(slot("quickstart:map/echo", () => ($states as any).input)),
+    ),
+  )
+  .resultPath("$.validated_items")
+```
+
+For a full business example, see `docs/map.md` and `validateModulesMapFlow` in `example/infra.ts`.

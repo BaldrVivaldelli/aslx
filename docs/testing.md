@@ -110,3 +110,19 @@ Run `npm run test:task-controls` to validate emission of `resultSelector`, `resu
 ## Parallel tests
 
 Run `npm run test:parallel` to validate `parallel(...)` emission, branch handling, and inline catch recovery.
+
+
+## Builder tests
+
+A few targeted builder tests exist to lock down DSL ergonomics and auto-wiring behavior:
+
+```bash
+npm run test:parallel
+npm run test:map
+npm run test:task-controls
+npm run test:catch
+npm run test:conditions
+npm run test:aws-sdk
+```
+
+They are small and fast, and usually provide a more direct failure message than golden snapshots.

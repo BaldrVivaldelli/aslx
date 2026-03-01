@@ -4,6 +4,8 @@ import type { ChoiceNode, ChoiceRule } from "./choice";
 import { ChoiceBuilder } from "./choice";
 import type { ParallelNode } from "./parallel";
 import { ParallelBuilder } from "./parallel";
+import type { MapNode } from "./map";
+import { MapBuilder } from "./map";
 import type { PassNode } from "./steps";
 import { PassBuilder } from "./steps";
 import type { SubflowNode } from "./subflow";
@@ -12,8 +14,8 @@ import { TaskBuilder } from "./task";
 
 export type StateMachineQueryLanguage = "JSONata" | "JSONPath";
 
-export type StepNode = PassNode | TaskNode | ChoiceNode | ParallelNode;
-export type StepLike = PassBuilder | PassNode | TaskBuilder | TaskNode | ChoiceBuilder | ChoiceNode | ParallelBuilder | ParallelNode;
+export type StepNode = PassNode | TaskNode | ChoiceNode | ParallelNode | MapNode;
+export type StepLike = PassBuilder | PassNode | TaskBuilder | TaskNode | ChoiceBuilder | ChoiceNode | ParallelBuilder | ParallelNode | MapBuilder | MapNode;
 
 export type StateMachineNode = {
   kind: "stateMachine";
@@ -37,6 +39,10 @@ function isChoiceBuilder(step: StepLike): step is ChoiceBuilder {
 
 function isParallelBuilder(step: StepLike): step is ParallelBuilder {
   return step instanceof ParallelBuilder;
+}
+
+function isMapBuilder(step: StepLike): step is MapBuilder {
+  return step instanceof MapBuilder;
 }
 
 function clonePassNode(node: PassNode): PassNode {
@@ -116,11 +122,32 @@ function cloneParallelNode(node: ParallelNode): ParallelNode {
   };
 }
 
+function cloneMapNode(node: MapNode): MapNode {
+  return {
+    ...node,
+    items: cloneTaskArgumentValue(node.items as any) as any,
+    itemsPath: node.itemsPath,
+    itemSelector: cloneTaskArgumentValue(node.itemSelector as any) as any,
+    maxConcurrency: node.maxConcurrency,
+    itemProcessor: node.itemProcessor ? cloneSubflowNode(node.itemProcessor) : undefined,
+    resultSelector: cloneTaskArgumentValue(node.resultSelector as any) as any,
+    resultPath: node.resultPath,
+    catch: node.catch ? node.catch.map((policy) => ({
+      ...policy,
+      ErrorEquals: [...policy.ErrorEquals],
+      inlineTarget: policy.inlineTarget ? cloneSubflowNode(policy.inlineTarget) : undefined,
+    })) : undefined,
+    next: node.next,
+    ...(node.end === true ? { end: true } : {}),
+  };
+}
+
 function materializeStep(step: StepLike): StepNode {
   if (isPassBuilder(step)) return step.build();
   if (isTaskBuilder(step)) return step.build();
   if (isChoiceBuilder(step)) return step.build();
   if (isParallelBuilder(step)) return step.build();
+  if (isMapBuilder(step)) return step.build();
   return cloneNode(step);
 }
 
@@ -128,10 +155,11 @@ function cloneNode(node: StepNode): StepNode {
   if (node.kind === "pass") return clonePassNode(node);
   if (node.kind === "task") return cloneTaskNode(node);
   if (node.kind === "choice") return cloneChoiceNode(node);
-  return cloneParallelNode(node);
+  if (node.kind === "parallel") return cloneParallelNode(node);
+  return cloneMapNode(node);
 }
 
-function hasExplicitTransition(node: PassNode | TaskNode | ParallelNode): boolean {
+function hasExplicitTransition(node: PassNode | TaskNode | ParallelNode | MapNode): boolean {
   return node.next !== undefined || node.end === true;
 }
 
@@ -157,7 +185,7 @@ function expandSequence(
     const next = wired[i + 1];
     const fallbackNext = next?.name ?? terminalNext;
 
-    if (current.kind === "pass" || current.kind === "task" || current.kind === "parallel") {
+    if (current.kind === "pass" || current.kind === "task" || current.kind === "parallel" || current.kind === "map") {
       if (!hasExplicitTransition(current)) {
         if (fallbackNext) current.next = fallbackNext;
         else current.end = true;
@@ -165,7 +193,7 @@ function expandSequence(
 
       pushUniqueState(expanded, seenNames, current);
 
-      if ((current.kind === "task" || current.kind === "parallel") && current.catch) {
+      if ((current.kind === "task" || current.kind === "parallel" || current.kind === "map") && current.catch) {
         for (const policy of current.catch) {
           if (!policy.inlineTarget) continue;
           expandSequence(policy.inlineTarget.states as StepNode[], expanded, seenNames, fallbackNext);

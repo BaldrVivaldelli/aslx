@@ -17,7 +17,10 @@ Use this as the default interpretation of the DSL:
 
 - `slot(...)` = expression
 - `pass(...)` = state
+- `task(...)` = integration step
 - `choice(...)` = decision
+- `parallel(...)` = concurrent container
+- `map(...)` = per-item container
 - `subflow(...)` = inline mini-graph used inside a decision target
 - `stateMachine(...)` = whole graph
 
@@ -109,6 +112,9 @@ This is the most important semantic table in the DSL.
 | --- | --- | --- |
 | `slot(...)` | JSONata expression reference | compiled JSONata string |
 | `pass(name)` | named Pass state | `Type: "Pass"` |
+| `task(name)` | named Task state | `Type: "Task"` |
+| `parallel(name)` | named Parallel state | `Type: "Parallel"` |
+| `map(name)` | named Map state | `Type: "Map"` |
 | `.content(...)` | visible result of the Pass | `Output` |
 | `.assign(...)` / `.assigns(...)` | derived variables | `Assign` |
 | `choice(name)` | named Choice state | `Type: "Choice"` |

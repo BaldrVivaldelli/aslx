@@ -2,6 +2,7 @@ import type { ChoiceNode, ChoiceRule } from "../dsl/choice";
 import type { JsonataLiteral, JsonataSlot, SyntheticJsonataExpression } from "../dsl/jsonata";
 import { isJsonataSlot, parseSyntheticExpressionSlotId } from "../dsl/jsonata";
 import type { ParallelCatchPolicy, ParallelNode } from "../dsl/parallel";
+import type { MapCatchPolicy, MapNode } from "../dsl/map";
 import type { StateMachineNode, StateMachineQueryLanguage, StepNode } from "../dsl/state-machine";
 import type { PassAssignMap, PassContent, PassNode } from "../dsl/steps";
 import type { CatchPolicy, TaskArgumentValue, TaskNode } from "../dsl/task";
@@ -67,7 +68,28 @@ export type AslParallelState = {
   End?: true;
 };
 
-export type AslState = AslPassState | AslTaskState | AslChoiceState | AslParallelState;
+export type AslItemProcessorDefinition = {
+  ProcessorConfig?: { Mode: "INLINE" | "DISTRIBUTED"; ExecutionType?: "STANDARD" | "EXPRESS" };
+  StartAt: string;
+  States: AslStates;
+};
+
+export type AslMapState = {
+  Type: "Map";
+  Comment?: string;
+  Items?: unknown;
+  ItemsPath?: string;
+  ItemSelector?: unknown;
+  MaxConcurrency?: unknown;
+  ItemProcessor: AslItemProcessorDefinition;
+  ResultSelector?: unknown;
+  ResultPath?: string;
+  Catch?: AslTaskCatch[];
+  Next?: string;
+  End?: true;
+};
+
+export type AslState = AslPassState | AslTaskState | AslChoiceState | AslParallelState | AslMapState;
 export type AslStates = Record<string, AslState>;
 
 export type AslStateMachineDefinition = {
@@ -167,7 +189,7 @@ function resolveTaskArgumentValue(value: TaskArgumentValue, slots: SlotRegistry)
   return value;
 }
 
-function emitCatchPolicy(policy: CatchPolicy | ParallelCatchPolicy): AslTaskCatch {
+function emitCatchPolicy(policy: CatchPolicy | ParallelCatchPolicy | MapCatchPolicy): AslTaskCatch {
   return {
     ErrorEquals: [...policy.ErrorEquals],
     Next: policy.Next,
@@ -332,6 +354,44 @@ export function emitParallelState(node: ParallelNode, slots: SlotRegistry): AslP
   return state;
 }
 
+export function emitMapState(node: MapNode, slots: SlotRegistry): AslMapState {
+  if (!node.itemProcessor || node.itemProcessor.states.length === 0) {
+    throw new Error(`Map state ${node.name} must have a non-empty itemProcessor`);
+  }
+
+  const processorStates = materializeBranchStates(node.itemProcessor.states as BranchStateNode[]);
+  const itemProcessor: AslItemProcessorDefinition = {
+    ProcessorConfig: { Mode: "INLINE" },
+    StartAt: processorStates[0]!.name,
+    States: emitStates(processorStates, slots),
+  };
+
+  const state: AslMapState = {
+    Type: "Map",
+    ItemProcessor: itemProcessor,
+  };
+
+  if (node.comment) state.Comment = node.comment;
+
+  if (node.items !== undefined) state.Items = resolveTaskArgumentValue(node.items, slots);
+  if (node.itemsPath !== undefined) state.ItemsPath = node.itemsPath;
+  if (node.itemSelector !== undefined) state.ItemSelector = resolveTaskArgumentValue(node.itemSelector, slots);
+  if (node.maxConcurrency !== undefined) {
+    state.MaxConcurrency = isJsonataSlot(node.maxConcurrency)
+      ? resolveSlot(node.maxConcurrency, slots)
+      : node.maxConcurrency;
+  }
+
+  if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots);
+  if (node.resultPath !== undefined) state.ResultPath = node.resultPath;
+  if (node.catch && node.catch.length > 0) state.Catch = node.catch.map((policy) => emitCatchPolicy(policy));
+
+  if (node.next) state.Next = node.next;
+  else state.End = true;
+
+  return state;
+}
+
 export function emitStates(nodes: Array<StepNode | BranchStateNode>, slots: SlotRegistry): AslStates {
   const states: AslStates = {};
   for (const node of nodes) {
@@ -341,7 +401,9 @@ export function emitStates(nodes: Array<StepNode | BranchStateNode>, slots: Slot
         ? emitTaskState(node, slots)
         : node.kind === "choice"
           ? emitChoiceState(node, slots)
-          : emitParallelState(node, slots);
+          : node.kind === "parallel"
+            ? emitParallelState(node, slots)
+            : emitMapState(node, slots);
   }
   return states;
 }

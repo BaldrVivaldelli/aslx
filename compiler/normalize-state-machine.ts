@@ -1,4 +1,3 @@
-import type { ParallelNode } from "../dsl/parallel";
 import type { StateMachineNode, StepNode } from "../dsl/state-machine";
 
 export type NormalizedStateNode = StepNode;
@@ -30,7 +29,7 @@ function getOutgoingTransitions(node: NormalizedStateNode): NormalizedTransition
     return node.next ? [{ from: node.name, to: node.next, kind: "next" }] : [];
   }
 
-  if (node.kind === "task" || node.kind === "parallel") {
+  if (node.kind === "task" || node.kind === "parallel" || node.kind === "map") {
     return [
       ...(node.next ? [{ from: node.name, to: node.next, kind: "next" as const }] : []),
       ...((node.catch ?? []).map((policy) => ({ from: node.name, to: policy.Next, kind: "catch" as const }))),

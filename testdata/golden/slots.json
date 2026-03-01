@@ -20,5 +20,22 @@
   "merchant:task/scoreMerchantOnboarding/source": "{%\n(\n  \"risk_engine\"\n)\n%}",
   "merchant:choice/isMerchantAutoApproved": "{%\n(\n  ($states.input.decision.approved = true)\n)\n%}",
   "merchant:parallel/mergeContextOutput": "{%\n(\n  {\"merchant_context\": $states.input.parallel_results, \"merged\": true}\n)\n%}",
-  "merchant:parallel/isEligible": "{%\n(\n  true\n)\n%}"
+  "merchant:parallel/isEligible": "{%\n(\n  true\n)\n%}",
+  "modules:common/validationMode": "{%\n(\n  $states := $states;\n\n  $states.input.validation.mode\n)\n%}",
+  "modules:common/validationSource": "{%\n(\n  $states := $states;\n\n  $states.input.validation.source\n)\n%}",
+  "modules:map/items": "{%\n(\n  $states := $states;\n\n  $modules := $states.input.modules;\n\n  ($exists($modules) ? $modules : [])\n)\n%}",
+  "modules:map/itemIndex": "{%\n(\n  $states := $states;\n\n  $states.context.Map.Item.Index\n)\n%}",
+  "modules:map/itemValue": "{%\n(\n  $states := $states;\n\n  $states.context.Map.Item.Value\n)\n%}",
+  "modules:map/processor/index": "{%\n(\n  $states := $states;\n\n  $states.input.index\n)\n%}",
+  "modules:map/processor/module": "{%\n(\n  $states := $states;\n\n  $states.input.module\n)\n%}",
+  "modules:map/processor/mode": "{%\n(\n  $states := $states;\n\n  $states.input.mode\n)\n%}",
+  "modules:map/processor/source": "{%\n(\n  $states := $states;\n\n  $states.input.source\n)\n%}",
+  "modules:task/validateOneModule/valid": "{%\n(\n  $states := $states;\n\n  $states.result.Payload.valid\n)\n%}",
+  "modules:task/validateOneModule/errors": "{%\n(\n  $states := $states;\n\n  $states.result.Payload.errors\n)\n%}",
+  "modules:map/processor/returnValidation": "{%\n(\n  $states := $states;\n\n  $states.input.validation\n)\n%}",
+  "modules:choice/allValid": "{%\n(\n  $states := $states;\n\n  $validations := $states.input.module_validations;\n\n  $invalid := $validations[($.valid != true)];\n\n  ($count($invalid) = 0)\n)\n%}",
+  "modules:choice/invalid": "{%\n(\n  $states := $states;\n\n  $validations := $states.input.module_validations;\n\n  $validations[($.valid != true)]\n)\n%}",
+  "modules:pass/persistValidatedModules/output": "{%\n(\n  $states := $states;\n\n  $validations := $states.input.module_validations;\n\n  {\"ok\": true, \"status\": \"modules_validated\", \"total\": $count($validations), \"validations\": $validations}\n)\n%}",
+  "modules:pass/rejectInvalidModules/output": "{%\n(\n  $states := $states;\n\n  $validations := $states.input.module_validations;\n\n  $invalid := $validations[($.valid != true)];\n\n  {\"ok\": false, \"reason\": \"invalid_modules\", \"total\": $count($validations), \"invalid_count\": $count($invalid), \"invalid\": $invalid}\n)\n%}",
+  "modules:pass/failModuleValidationRuntime/output": "{%\n(\n  $states := $states;\n\n  {\"ok\": false, \"reason\": \"module_validation_failed\", \"error\": $states.input.module_validation_error}\n)\n%}"
 }

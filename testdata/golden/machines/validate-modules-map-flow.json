@@ -1,0 +1,95 @@
+{
+  "QueryLanguage": "JSONata",
+  "Comment": "Validates each requested module using Map + per-item Lambda validation, then routes the request based on aggregated validity.",
+  "StartAt": "ValidateModules",
+  "States": {
+    "ValidateModules": {
+      "Type": "Map",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "ValidateOneModule",
+        "States": {
+          "ValidateOneModule": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Comment": "Validates one module in the current Map iteration.",
+            "Arguments": {
+              "FunctionName": "${file(resources/index.json):cross_lambdas.validate_module}",
+              "Payload": {
+                "index": "{% ((\n  $states := $states;\n\n  $states.input.index\n)) %}",
+                "module": "{% ((\n  $states := $states;\n\n  $states.input.module\n)) %}",
+                "mode": "{% ((\n  $states := $states;\n\n  $states.input.mode\n)) %}",
+                "source": "{% ((\n  $states := $states;\n\n  $states.input.source\n)) %}"
+              }
+            },
+            "ResultSelector": {
+              "index": "{% ((\n  $states := $states;\n\n  $states.input.index\n)) %}",
+              "module": "{% ((\n  $states := $states;\n\n  $states.input.module\n)) %}",
+              "valid": "{% ((\n  $states := $states;\n\n  $states.result.Payload.valid\n)) %}",
+              "errors": "{% ((\n  $states := $states;\n\n  $states.result.Payload.errors\n)) %}"
+            },
+            "ResultPath": "$.validation",
+            "Next": "ReturnModuleValidation"
+          },
+          "ReturnModuleValidation": {
+            "Type": "Pass",
+            "Comment": "Emits the compact per-module validation object as the iteration output.",
+            "Output": "{% ((\n  $states := $states;\n\n  $states.input.validation\n)) %}",
+            "End": true
+          }
+        }
+      },
+      "Comment": "Validates each module concurrently and stores the per-item results under $.module_validations.",
+      "Items": "{% ((\n  $states := $states;\n\n  $modules := $states.input.modules;\n\n  ($exists($modules) ? $modules : [])\n)) %}",
+      "ItemSelector": {
+        "index": "{% ((\n  $states := $states;\n\n  $states.context.Map.Item.Index\n)) %}",
+        "module": "{% ((\n  $states := $states;\n\n  $states.context.Map.Item.Value\n)) %}",
+        "mode": "{% ((\n  $states := $states;\n\n  $states.input.validation.mode\n)) %}",
+        "source": "{% ((\n  $states := $states;\n\n  $states.input.validation.source\n)) %}"
+      },
+      "MaxConcurrency": 20,
+      "ResultPath": "$.module_validations",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "FailModuleValidationRuntime",
+          "ResultPath": "$.module_validation_error"
+        }
+      ],
+      "Next": "AreModulesValid"
+    },
+    "FailModuleValidationRuntime": {
+      "Type": "Pass",
+      "Comment": "Handles Map runtime failures with a stable error payload.",
+      "Output": "{% ((\n  $states := $states;\n\n  {\"ok\": false, \"reason\": \"module_validation_failed\", \"error\": $states.input.module_validation_error}\n)) %}",
+      "End": true
+    },
+    "AreModulesValid": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% (((\n  $states := $states;\n\n  $validations := $states.input.module_validations;\n\n  $invalid := $validations[($.valid != true)];\n\n  ($count($invalid) = 0)\n)) and ((((\n  $states := $states;\n\n  $states.input.validation.mode\n)) = \"strict\") or (((\n  $states := $states;\n\n  $states.input.validation.source\n)) = \"manual\")) and (((\n  $states := $states;\n\n  $states.input.validation.source\n)) != \"legacy\")) %}",
+          "Next": "PersistValidatedModules"
+        }
+      ],
+      "Comment": "Accepts only when every module is valid and the request is either strict-mode or manually sourced (and never legacy sourced).",
+      "Default": "RejectInvalidModules"
+    },
+    "PersistValidatedModules": {
+      "Type": "Pass",
+      "Comment": "Represents the happy path after all modules validated successfully.",
+      "Output": "{% ((\n  $states := $states;\n\n  $validations := $states.input.module_validations;\n\n  {\"ok\": true, \"status\": \"modules_validated\", \"total\": $count($validations), \"validations\": $validations}\n)) %}",
+      "End": true
+    },
+    "RejectInvalidModules": {
+      "Type": "Pass",
+      "Comment": "Returns the invalid module subset when validation fails.",
+      "Output": "{% ((\n  $states := $states;\n\n  $validations := $states.input.module_validations;\n\n  $invalid := $validations[($.valid != true)];\n\n  {\"ok\": false, \"reason\": \"invalid_modules\", \"total\": $count($validations), \"invalid_count\": $count($invalid), \"invalid\": $invalid}\n)) %}",
+      "End": true
+    }
+  }
+}

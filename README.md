@@ -325,6 +325,60 @@ This lets you:
 Exactly your Osiris/Nave vision.
 
 ------------------------------------------------------------------------
+## Task support
+
+The project now includes a generic `task(...)` builder for aws-sdk tasks and `lambdaInvoke(...)` as focused sugar for Lambda Step Functions tasks. See `example/infra.ts` and `docs/quickstart.md` for concrete examples.
+
+------------------------------------------------------------------------
+## Golden tests
+
+Use golden snapshot tests to lock down the emitted `slots.json` and `machines/*.json` artifacts.
+
+```bash
+npm run test:golden
+```
+
+If you intentionally changed the DSL, compiler, normalizer, or emitter and want to refresh the expected outputs:
+
+```bash
+npm run test:golden:update
+```
+
+Snapshots live under:
+
+- `testdata/golden/slots.json`
+- `testdata/golden/machines/*.json`
+
+------------------------------------------------------------------------
+## AWS SDK sugar
+
+Use `awsSdkTask(...)` when you want to express an AWS SDK integration with `.service(...)` and `.action(...)` instead of spelling the full resource ARN manually.
+
+```ts
+awsSdkTask("GetPackage")
+  .service("dynamodb")
+  .action("getItem")
+  .arguments({
+    TableName: "${file(resources/index.json):tables.providers}",
+    Key: packageKey(),
+  })
+  .output(getPackageOutput());
+```
+
+------------------------------------------------------------------------
+## Task result controls
+
+The DSL supports `resultSelector(...)`, `resultPath(...)`, `timeoutSeconds(...)`, and `heartbeatSeconds(...)` on task states. See `docs/task-controls.md` for examples and validation rules.
+
+------------------------------------------------------------------------
+## Additional docs
+
+- `docs/parallel.md`
+------------------------------------------------------------------------
+## Additional test scripts
+
+- `npm run test:parallel`
+------------------------------------------------------------------------
 
 # 🔮 Next Steps
 
@@ -345,56 +399,3 @@ JSONata is the **execution language**
 You own the **compiler layer**
 
 That's the power move.
-
-## Task support
-
-The project now includes a generic `task(...)` builder for aws-sdk tasks and `lambdaInvoke(...)` as focused sugar for Lambda Step Functions tasks. See `example/infra.ts` and `docs/quickstart.md` for concrete examples.
-
-## Golden tests
-
-Use golden snapshot tests to lock down the emitted `slots.json` and `machines/*.json` artifacts.
-
-```bash
-npm run test:golden
-```
-
-If you intentionally changed the DSL, compiler, normalizer, or emitter and want to refresh the expected outputs:
-
-```bash
-npm run test:golden:update
-```
-
-Snapshots live under:
-
-- `testdata/golden/slots.json`
-- `testdata/golden/machines/*.json`
-
-
-## AWS SDK sugar
-
-Use `awsSdkTask(...)` when you want to express an AWS SDK integration with `.service(...)` and `.action(...)` instead of spelling the full resource ARN manually.
-
-```ts
-awsSdkTask("GetPackage")
-  .service("dynamodb")
-  .action("getItem")
-  .arguments({
-    TableName: "${file(resources/index.json):tables.providers}",
-    Key: packageKey(),
-  })
-  .output(getPackageOutput());
-```
-
-
-## Task result controls
-
-The DSL supports `resultSelector(...)`, `resultPath(...)`, `timeoutSeconds(...)`, and `heartbeatSeconds(...)` on task states. See `docs/task-controls.md` for examples and validation rules.
-
-
-## Additional docs
-
-- `docs/parallel.md`
-
-## Additional test scripts
-
-- `npm run test:parallel`

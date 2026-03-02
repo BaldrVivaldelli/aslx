@@ -8,6 +8,10 @@ import { pass } from "../dsl/steps";
 const slots = {
   "tests:result/payload": "{% $states.result.Payload %}",
   "tests:result/source": '{% "lambda_invoke" %}',
+  // JSONata Output must be a single JSONata expression string.
+  // We keep the original input and attach a computed field.
+  "tests:result/output":
+    '{% $merge([$states.input, {"compute": {"payload": $states.result.Payload, "source": "lambda_invoke"}}]) %}',
 };
 
 const tests: Array<{ name: string; run: () => void }> = [
@@ -22,12 +26,7 @@ const tests: Array<{ name: string; run: () => void }> = [
               .functionName("ComputeFunctionArn")
               .payload({ computeMany: "input" })
               .assign("compute_payload", { __kind: "jsonata_slot", __slotId: "tests:result/payload" })
-              .output({
-                compute: {
-                  payload: { __kind: "jsonata_slot", __slotId: "tests:result/payload" },
-                  source: { __kind: "jsonata_slot", __slotId: "tests:result/source" },
-                },
-              })
+              .output({ __kind: "jsonata_slot", __slotId: "tests:result/output" })
               .timeoutSeconds(30)
               .heartbeatSeconds(10),
           )
@@ -41,12 +40,10 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.deepEqual(compute.Assign, {
         compute_payload: "{% ($states.result.Payload) %}",
       });
-      assert.deepEqual(compute.Output, {
-        compute: {
-          payload: "{% ($states.result.Payload) %}",
-          source: '{% ("lambda_invoke") %}',
-        },
-      });
+      assert.equal(
+        compute.Output,
+        '{% ($merge([$states.input, {"compute": {"payload": $states.result.Payload, "source": "lambda_invoke"}}])) %}',
+      );
       assert.equal(compute.TimeoutSeconds, 30);
       assert.equal(compute.HeartbeatSeconds, 10);
       assert.equal(compute.Next, "Done");

@@ -13,6 +13,9 @@ const slots = {
   'tests:parallel/eligible': '{% true %}',
   'tests:parallel/result': '{% $states.result %}',
   'tests:parallel/errorOutput': '{% $states.errorOutput %}',
+  // JSONata Output must be a single JSONata expression string.
+  'tests:parallel/output': '{% $merge([$states.input, {"parallel_results": $states.result}]) %}',
+  'tests:parallel/catchOutput': '{% $merge([$states.input, {"parallel_error": $states.errorOutput}]) %}',
 };
 
 const tests: Array<{ name: string; run: () => void }> = [
@@ -37,7 +40,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                     .payload({ input: { __kind: 'jsonata_slot', __slotId: 'tests:parallel/input' } }),
                 ),
               )
-              .output({ parallel_results: { __kind: 'jsonata_slot', __slotId: 'tests:parallel/result' } }),
+              .output({ __kind: 'jsonata_slot', __slotId: 'tests:parallel/output' }),
           )
           .then(pass('AfterParallel').end())
           .build(),
@@ -46,7 +49,10 @@ const tests: Array<{ name: string; run: () => void }> = [
 
       const prepare = definition.States.PrepareContext;
       assert.equal(prepare.Type, 'Parallel');
-      assert.deepEqual(prepare.Output, { parallel_results: '{% ($states.result) %}' });
+      assert.equal(
+        prepare.Output,
+        '{% ($merge([$states.input, {"parallel_results": $states.result}])) %}',
+      );
       assert.equal(prepare.Next, 'AfterParallel');
       assert.equal(prepare.Branches.length, 2);
       assert.equal(prepare.Branches[0]?.StartAt, 'LoadMerchant');
@@ -73,7 +79,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                 subflow(
                   pass('RecoverParallelFailure').content({ ok: false, source: 'parallel' }),
                 ),
-                { output: { parallel_error: { __kind: 'jsonata_slot', __slotId: 'tests:parallel/errorOutput' } } },
+                { output: { __kind: 'jsonata_slot', __slotId: 'tests:parallel/catchOutput' } },
               ),
           )
           .then(pass('AfterRecovery').end())
@@ -87,7 +93,7 @@ const tests: Array<{ name: string; run: () => void }> = [
         {
           ErrorEquals: ['States.ALL'],
           Next: 'RecoverParallelFailure',
-          Output: { parallel_error: '{% ($states.errorOutput) %}' },
+          Output: '{% ($merge([$states.input, {"parallel_error": $states.errorOutput}])) %}',
         },
       ]);
 

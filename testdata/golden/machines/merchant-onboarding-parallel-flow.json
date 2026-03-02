@@ -56,7 +56,7 @@
         }
       ],
       "Comment": "Loads merchant-related context concurrently.",
-      "ResultPath": "$.parallel_results",
+      "Output": "{% ((\n  $merge([$states.input, {\"parallel_results\": $states.result}])\n)) %}",
       "Next": "MergeMerchantContext"
     },
     "MergeMerchantContext": {

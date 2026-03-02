@@ -1,23 +1,22 @@
 {
   "QueryLanguage": "JSONata",
-  "Comment": "Demonstrates ResultSelector, ResultPath, TimeoutSeconds, and HeartbeatSeconds on Lambda tasks.",
+  "Comment": "Demonstrates Output, Assign, TimeoutSeconds, and HeartbeatSeconds on Lambda tasks when using JSONata.",
   "StartAt": "ComputeManyWithControls",
   "States": {
     "ComputeManyWithControls": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
-      "Comment": "Invokes the computation Lambda and stores a selected result payload under $.compute.",
+      "Comment": "Invokes the computation Lambda and shapes the state output under $.compute while assigning the raw payload to a variable.",
       "Arguments": {
         "FunctionName": "${file(resources/index.json):cross_lambdas.methods}",
         "Payload": {
           "computeMany": "{% ((\n  $states.input\n)) %}"
         }
       },
-      "ResultSelector": {
-        "payload": "{% ((\n  $states.result.Payload\n)) %}",
-        "source": "{% ((\n  \"lambda_invoke\"\n)) %}"
+      "Output": "{% ((\n  $merge([$states.input, {\"compute\": {\"payload\": $states.result.Payload, \"source\": \"lambda_invoke\"}}])\n)) %}",
+      "Assign": {
+        "compute_payload": "{% ((\n  $states.result.Payload\n)) %}"
       },
-      "ResultPath": "$.compute",
       "TimeoutSeconds": 45,
       "HeartbeatSeconds": 15,
       "Next": "AfterTaskControls"

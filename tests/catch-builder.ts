@@ -8,7 +8,8 @@ import { subflow } from '../dsl/subflow';
 import { task } from '../dsl/task';
 
 const slots = {
-  'tests:errorOutput': '{% $states.errorOutput %}',
+  'tests:taskErrorOutput': '{% $merge([$states.input, {"task_error": $states.errorOutput}]) %}',
+  'tests:computeErrorOutput': '{% $merge([$states.input, {"compute_error": $states.errorOutput}]) %}',
 };
 
 const tests: Array<{ name: string; run: () => void }> = [
@@ -20,7 +21,7 @@ const tests: Array<{ name: string; run: () => void }> = [
           .startWith(
             task('Work')
               .resource('arn:aws:states:::lambda:invoke')
-              .catch(['States.Timeout'], 'Recover', { output: { task_error: { __kind: 'jsonata_slot', __slotId: 'tests:errorOutput' } } })
+              .catch(['States.Timeout'], 'Recover', { output: { __kind: 'jsonata_slot', __slotId: 'tests:taskErrorOutput' } })
               .next('Done'),
           )
           .then(pass('Done').end())
@@ -35,7 +36,7 @@ const tests: Array<{ name: string; run: () => void }> = [
         {
           ErrorEquals: ['States.Timeout'],
           Next: 'Recover',
-          Output: { task_error: '{% ($states.errorOutput) %}' },
+          Output: '{% ($merge([$states.input, {"task_error": $states.errorOutput}])) %}',
         },
       ]);
       assert.equal(work.Next, 'Done');
@@ -56,7 +57,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                 ).then(
                   pass('AuditComputeFailure').content({ audited: true, source: 'catch' }),
                 ),
-                { output: { compute_error: { __kind: 'jsonata_slot', __slotId: 'tests:errorOutput' } } },
+                { output: { __kind: 'jsonata_slot', __slotId: 'tests:computeErrorOutput' } },
               ),
           )
           .then(
@@ -75,7 +76,7 @@ const tests: Array<{ name: string; run: () => void }> = [
         {
           ErrorEquals: ['States.ALL'],
           Next: 'NormalizeComputeError',
-          Output: { compute_error: '{% ($states.errorOutput) %}' },
+          Output: '{% ($merge([$states.input, {"compute_error": $states.errorOutput}])) %}',
         },
       ]);
 

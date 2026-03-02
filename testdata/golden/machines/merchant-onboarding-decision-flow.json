@@ -11,7 +11,7 @@
         "TableName": "${file(resources/index.json):tables.merchants}",
         "Key": "{% ((\n  {\"PK\": (\"MERCHANT#\" & $states.input.merchant_id), \"SK\": \"PROFILE\"}\n)) %}"
       },
-      "ResultPath": "$.merchant_profile",
+      "Output": "{% ((\n  $merge([$states.input, {\"merchant_profile\": $states.result}])\n)) %}",
       "Next": "ScoreMerchantOnboarding"
     },
     "ScoreMerchantOnboarding": {
@@ -25,13 +25,7 @@
           "merchantProfile": "{% ((\n  $states.input.merchant_profile\n)) %}"
         }
       },
-      "ResultSelector": {
-        "approved": "{% ((\n  $states.result.Payload.approved\n)) %}",
-        "band": "{% ((\n  $states.result.Payload.band\n)) %}",
-        "reasons": "{% ((\n  $states.result.Payload.reasons\n)) %}",
-        "source": "{% ((\n  \"risk_engine\"\n)) %}"
-      },
-      "ResultPath": "$.decision",
+      "Output": "{% ((\n  $merge([$states.input, {\"decision\": {\"approved\": $states.result.Payload.approved, \"band\": $states.result.Payload.band, \"reasons\": $states.result.Payload.reasons, \"source\": \"risk_engine\"}}])\n)) %}",
       "TimeoutSeconds": 20,
       "Retry": [
         {

@@ -14,6 +14,9 @@ const slots = {
   'tests:map/itemValue': '{% $states.context.Map.Item.Value %}',
   'tests:map/result': '{% $states.result %}',
   'tests:map/errorOutput': '{% $states.errorOutput %}',
+  // JSONata Output must be a single JSONata expression string.
+  'tests:map/output': '{% $merge([$states.input, {"validated_items": $states.result}]) %}',
+  'tests:map/catchOutput': '{% $merge([$states.input, {"map_error": $states.errorOutput}]) %}',
 };
 
 const tests: Array<{ name: string; run: () => void }> = [
@@ -37,7 +40,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                     .payload({ input: { __kind: 'jsonata_slot', __slotId: 'tests:map/input' } }),
                 ),
               )
-              .output({ validated_items: { __kind: 'jsonata_slot', __slotId: 'tests:map/result' } }),
+              .output({ __kind: 'jsonata_slot', __slotId: 'tests:map/output' }),
           )
           .then(pass('AfterMap').end())
           .build(),
@@ -47,7 +50,10 @@ const tests: Array<{ name: string; run: () => void }> = [
       const state = definition.States.ValidateItems as any;
       assert.equal(state.Type, 'Map');
       assert.equal(state.Next, 'AfterMap');
-      assert.deepEqual(state.Output, { validated_items: '{% ($states.result) %}' });
+      assert.equal(
+        state.Output,
+        '{% ($merge([$states.input, {"validated_items": $states.result}])) %}',
+      );
       assert.equal(state.MaxConcurrency, 5);
       assert.ok(typeof state.Items === 'string');
       assert.ok(state.Items.includes('$states.input.items'));
@@ -73,7 +79,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                 subflow(
                   pass('RecoverMapFailure').content({ ok: false, source: 'map' }),
                 ),
-                { output: { map_error: { __kind: 'jsonata_slot', __slotId: 'tests:map/errorOutput' } } },
+                { output: { __kind: 'jsonata_slot', __slotId: 'tests:map/catchOutput' } },
               ),
           )
           .then(pass('AfterRecovery').end())
@@ -87,7 +93,7 @@ const tests: Array<{ name: string; run: () => void }> = [
         {
           ErrorEquals: ['States.ALL'],
           Next: 'RecoverMapFailure',
-          Output: { map_error: '{% ($states.errorOutput) %}' },
+          Output: '{% ($merge([$states.input, {"map_error": $states.errorOutput}])) %}',
         },
       ]);
 

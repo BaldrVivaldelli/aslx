@@ -24,13 +24,7 @@
                 "source": "{% ((\n  $states := $states;\n\n  $states.input.source\n)) %}"
               }
             },
-            "ResultSelector": {
-              "index": "{% ((\n  $states := $states;\n\n  $states.input.index\n)) %}",
-              "module": "{% ((\n  $states := $states;\n\n  $states.input.module\n)) %}",
-              "valid": "{% ((\n  $states := $states;\n\n  $states.result.Payload.valid\n)) %}",
-              "errors": "{% ((\n  $states := $states;\n\n  $states.result.Payload.errors\n)) %}"
-            },
-            "ResultPath": "$.validation",
+            "Output": "{% ((\n  {\"validation\": {\"index\": $states.input.index, \"module\": $states.input.module, \"valid\": $states.result.Payload.valid, \"errors\": $states.result.Payload.errors}}\n)) %}",
             "Next": "ReturnModuleValidation"
           },
           "ReturnModuleValidation": {
@@ -50,14 +44,14 @@
         "source": "{% ((\n  $states := $states;\n\n  $states.input.validation.source\n)) %}"
       },
       "MaxConcurrency": 20,
-      "ResultPath": "$.module_validations",
+      "Output": "{% ((\n  $merge([$states.input, {\"module_validations\": $states.result}])\n)) %}",
       "Catch": [
         {
           "ErrorEquals": [
             "States.ALL"
           ],
           "Next": "FailModuleValidationRuntime",
-          "ResultPath": "$.module_validation_error"
+          "Output": "{% ((\n  $merge([$states.input, {\"module_validation_error\": $states.errorOutput}])\n)) %}"
         }
       ],
       "Next": "AreModulesValid"

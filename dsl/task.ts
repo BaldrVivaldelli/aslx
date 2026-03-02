@@ -1,12 +1,10 @@
-import type { PassAssignMap, PassAssignValue, PassContent, PassNode } from "./steps";
+import type { PassAssignMap, PassAssignValue, PassContent, PassNode, StepName } from "./steps";
 import { PassBuilder } from "./steps";
 import type { JsonataSlot } from "./jsonata";
 import type { StateMachineQueryLanguage } from "./state-machine";
 import type { RawStateNode } from "./raw-state";
 import type { SubflowNode } from "./subflow";
 import { SubflowBuilder, subflow } from "./subflow";
-
-export type StepName = string;
 
 export type TaskArgumentValue =
   | string

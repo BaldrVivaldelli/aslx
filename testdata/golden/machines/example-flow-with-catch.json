@@ -34,7 +34,7 @@
             "States.ALL"
           ],
           "Next": "NormalizeComputeError",
-          "ResultPath": "$.compute_error"
+          "Output": "{% ((\n  $merge([$states.input, {\"compute_error\": $states.errorOutput}])\n)) %}"
         }
       ],
       "Next": "AfterComputeAttempt"

@@ -2,14 +2,13 @@ import type { JsonataSlot } from "./jsonata";
 import { not } from "./jsonata";
 import type { StateMachineQueryLanguage } from "./state-machine";
 import type { RawStateNode } from "./raw-state";
-import type { PassNode } from "./steps";
+import type { PassNode, StepName } from "./steps";
 import { PassBuilder } from "./steps";
 import type { SubflowNode } from "./subflow";
 import { SubflowBuilder, subflow } from "./subflow";
 import type { TaskNode } from "./task";
 import { TaskBuilder } from "./task";
 
-export type StepName = string;
 export type InlineSubflowStepLike = PassBuilder | PassNode | TaskBuilder | TaskNode;
 export type InlineSubflowTarget = InlineSubflowStepLike | SubflowBuilder | SubflowNode;
 export type SubflowTarget = StepName | InlineSubflowTarget;

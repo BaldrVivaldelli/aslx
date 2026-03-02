@@ -399,7 +399,6 @@ This lets you:
 -   Plug a **Rust backend for YAML**
 -   Ship a **real platform product**
 
-Exactly your Osiris/Nave vision.
 
 ------------------------------------------------------------------------
 ## Task support

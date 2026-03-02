@@ -158,7 +158,7 @@ This emits top-level ASL metadata while keeping `Pass` authoring focused on `Out
 > If the unscoped name is taken in the registry, publish/install under a scope like `@your-org/aslx`.
 
 ```bash
-npm i aslx
+npm i aslx-sfn
 ```
 
 ## From source (this repo)

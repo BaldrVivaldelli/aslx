@@ -1,4 +1,4 @@
-import { slot, $states } from "../dsl/jsonata";
+import { slot, $states, merge } from "../dsl/jsonata";
 
 export function merchantLookupKey() {
   return slot("merchant:task/getMerchantProfile/key", () => ({
@@ -50,4 +50,53 @@ export function mergeMerchantContextOutput() {
 
 export function isMerchantEligible() {
   return slot("merchant:parallel/isEligible", () => true);
+}
+
+export function merchantProfileOutput() {
+  return slot("merchant:task/getMerchantProfile/output", () =>
+    merge([
+      ($states as { input: Record<string, unknown> }).input,
+      {
+        merchant_profile: ($states as { result: unknown }).result,
+      },
+    ]),
+  );
+}
+
+export function merchantDecisionOutput() {
+  return slot("merchant:task/scoreMerchantOnboarding/output", () =>
+    merge([
+      ($states as { input: Record<string, unknown> }).input,
+      {
+        decision: {
+          approved: ($states as { result: { Payload: { approved: boolean } } }).result.Payload.approved,
+          band: ($states as { result: { Payload: { band: string } } }).result.Payload.band,
+          reasons: ($states as { result: { Payload: { reasons: unknown[] } } }).result.Payload.reasons,
+          source: "risk_engine",
+        },
+      },
+    ]),
+  );
+}
+
+export function merchantParallelResultsOutput() {
+  return slot("merchant:parallel/resultsOutput", () =>
+    merge([
+      ($states as { input: Record<string, unknown> }).input,
+      {
+        parallel_results: ($states as { result: unknown }).result,
+      },
+    ]),
+  );
+}
+
+export function merchantParallelErrorOutput() {
+  return slot("merchant:parallel/errorOutput", () =>
+    merge([
+      ($states as { input: Record<string, unknown> }).input,
+      {
+        parallel_error: ($states as { errorOutput: unknown }).errorOutput,
+      },
+    ]),
+  );
 }

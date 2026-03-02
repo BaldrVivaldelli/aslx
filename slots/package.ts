@@ -20,6 +20,20 @@ export function computeManyOutput() {
   );
 }
 
+export function computeManyEnrichedOutput() {
+  return slot("package:task/computeMany/enrichedOutput", () =>
+    merge([
+      ($states as { input: Record<string, unknown> }).input,
+      {
+        compute: {
+          payload: ($states as { result: { Payload: unknown } }).result.Payload,
+          source: "lambda_invoke",
+        },
+      },
+    ]),
+  );
+}
+
 export function lambdaPayloadSlot() {
   return slot("package:task/computeMany/resultSelectorPayload", () =>
     ($states as { result: { Payload: unknown } }).result.Payload,

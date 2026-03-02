@@ -233,7 +233,7 @@ export class StateMachineBuilder {
   private metadata: {
     queryLanguage?: StateMachineQueryLanguage;
     comment?: string;
-  } = {};
+  } = { queryLanguage: "JSONata" };
 
   constructor(name: string) {
     this.name = name;

@@ -1,10 +1,10 @@
 import type { JsonataSlot } from "./jsonata";
-import type { StepName } from "./steps";
+import type { PassAssignMap, PassAssignValue, PassContent, StepName } from "./steps";
 import type { PassNode } from "./steps";
 import { PassBuilder } from "./steps";
 import type { SubflowNode } from "./subflow";
 import { SubflowBuilder, subflow } from "./subflow";
-import type { TaskArgumentValue, TaskNode } from "./task";
+import type { RetryPolicy, TaskArgumentValue, TaskNode } from "./task";
 import { TaskBuilder } from "./task";
 
 /**
@@ -19,7 +19,12 @@ import { TaskBuilder } from "./task";
 export type MapCatchPolicy = {
   ErrorEquals: string[];
   Next: StepName;
+  /** JSONPath-only */
   ResultPath?: string;
+  /** JSONata-only */
+  Output?: PassContent;
+  /** Variables */
+  Assign?: PassAssignMap;
   inlineTarget?: SubflowNode;
 };
 
@@ -42,8 +47,16 @@ export type MapNode = {
 
   comment?: string;
 
+  /** JSONata-only */
+  output?: PassContent;
+  /** Variables */
+  assign?: PassAssignMap;
+  retry?: RetryPolicy[];
+
   // Result controls
+  /** JSONPath-only */
   resultSelector?: TaskArgumentValue;
+  /** JSONPath-only */
   resultPath?: string;
 
   // Error handling
@@ -59,7 +72,12 @@ export type InlineMapTarget = InlineMapStepLike | SubflowBuilder | SubflowNode;
 export type MapCatchTarget = StepName | InlineMapTarget;
 
 export type MapCatchOptions = {
+  /** JSONPath-only */
   resultPath?: string;
+  /** JSONata-only */
+  output?: PassContent;
+  /** Variables */
+  assign?: PassAssignMap;
 };
 
 function cloneTaskArgumentValue(value: TaskArgumentValue | undefined): TaskArgumentValue | undefined {
@@ -85,12 +103,14 @@ function clonePassNode(node: PassNode): PassNode {
 function cloneTaskNode(node: TaskNode): TaskNode {
   return {
     ...node,
+    assign: node.assign ? { ...node.assign } : undefined,
     arguments: cloneTaskArgumentValue(node.arguments),
     resultSelector: cloneTaskArgumentValue(node.resultSelector),
     retry: node.retry ? node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] })) : undefined,
     catch: node.catch ? node.catch.map((policy) => ({
       ...policy,
       ErrorEquals: [...policy.ErrorEquals],
+      Assign: policy.Assign ? { ...policy.Assign } : undefined,
       inlineTarget: policy.inlineTarget ? cloneSubflowNode(policy.inlineTarget) : undefined,
     })) : undefined,
   };
@@ -173,6 +193,28 @@ export class MapBuilder {
     return this;
   }
 
+  output(output: PassContent): this {
+    this.node.output = output;
+    return this;
+  }
+
+  assign(name: string, value: PassAssignValue): this {
+    this.node.assign ??= {};
+    this.node.assign[name] = value;
+    return this;
+  }
+
+  assigns(values: PassAssignMap): this {
+    this.node.assign ??= {};
+    Object.assign(this.node.assign, values);
+    return this;
+  }
+
+  retry(policy: RetryPolicy | RetryPolicy[]): this {
+    this.node.retry = Array.isArray(policy) ? [...policy] : [policy];
+    return this;
+  }
+
   /**
    * JSONata-friendly dataset selection.
    * Compiles to `Items`.
@@ -248,6 +290,8 @@ export class MapBuilder {
       ErrorEquals: normalizedErrors,
       Next: materialized.next,
       ...(options.resultPath ? { ResultPath: options.resultPath } : {}),
+      ...(options.output !== undefined ? { Output: options.output } : {}),
+      ...(options.assign ? { Assign: options.assign } : {}),
       ...(materialized.inlineTarget ? { inlineTarget: materialized.inlineTarget } : {}),
     };
 
@@ -297,11 +341,15 @@ export class MapBuilder {
       maxConcurrency: this.node.maxConcurrency,
       itemProcessor: cloneSubflowNode(this.node.itemProcessor),
       comment: this.node.comment,
+      output: this.node.output,
+      assign: this.node.assign ? { ...this.node.assign } : undefined,
+      retry: this.node.retry ? this.node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] })) : undefined,
       resultSelector: cloneTaskArgumentValue(this.node.resultSelector),
       resultPath: this.node.resultPath,
       catch: this.node.catch ? this.node.catch.map((policy) => ({
         ...policy,
         ErrorEquals: [...policy.ErrorEquals],
+        Assign: policy.Assign ? { ...policy.Assign } : undefined,
         inlineTarget: policy.inlineTarget ? cloneSubflowNode(policy.inlineTarget) : undefined,
       })) : undefined,
       next: this.node.next,

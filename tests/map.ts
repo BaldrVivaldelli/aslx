@@ -12,6 +12,8 @@ const slots = {
   'tests:map/input': '{% $states.input %}',
   'tests:map/itemIndex': '{% $states.context.Map.Item.Index %}',
   'tests:map/itemValue': '{% $states.context.Map.Item.Value %}',
+  'tests:map/result': '{% $states.result %}',
+  'tests:map/errorOutput': '{% $states.errorOutput %}',
 };
 
 const tests: Array<{ name: string; run: () => void }> = [
@@ -35,7 +37,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                     .payload({ input: { __kind: 'jsonata_slot', __slotId: 'tests:map/input' } }),
                 ),
               )
-              .resultPath('$.validated_items'),
+              .output({ validated_items: { __kind: 'jsonata_slot', __slotId: 'tests:map/result' } }),
           )
           .then(pass('AfterMap').end())
           .build(),
@@ -45,7 +47,7 @@ const tests: Array<{ name: string; run: () => void }> = [
       const state = definition.States.ValidateItems as any;
       assert.equal(state.Type, 'Map');
       assert.equal(state.Next, 'AfterMap');
-      assert.equal(state.ResultPath, '$.validated_items');
+      assert.deepEqual(state.Output, { validated_items: '{% ($states.result) %}' });
       assert.equal(state.MaxConcurrency, 5);
       assert.ok(typeof state.Items === 'string');
       assert.ok(state.Items.includes('$states.input.items'));
@@ -71,7 +73,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                 subflow(
                   pass('RecoverMapFailure').content({ ok: false, source: 'map' }),
                 ),
-                { resultPath: '$.map_error' },
+                { output: { map_error: { __kind: 'jsonata_slot', __slotId: 'tests:map/errorOutput' } } },
               ),
           )
           .then(pass('AfterRecovery').end())
@@ -85,7 +87,7 @@ const tests: Array<{ name: string; run: () => void }> = [
         {
           ErrorEquals: ['States.ALL'],
           Next: 'RecoverMapFailure',
-          ResultPath: '$.map_error',
+          Output: { map_error: '{% ($states.errorOutput) %}' },
         },
       ]);
 

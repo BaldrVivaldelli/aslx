@@ -1,4 +1,4 @@
-import type { PassContent, PassNode } from "./steps";
+import type { PassAssignMap, PassAssignValue, PassContent, PassNode } from "./steps";
 import { PassBuilder } from "./steps";
 import type { JsonataSlot } from "./jsonata";
 import type { SubflowNode } from "./subflow";
@@ -27,7 +27,12 @@ export type RetryPolicy = {
 export type CatchPolicy = {
   ErrorEquals: string[];
   Next: StepName;
+  /** JSONPath-only */
   ResultPath?: string;
+  /** JSONata-only */
+  Output?: PassContent;
+  /** JSONata / Variables */
+  Assign?: PassAssignMap;
   inlineTarget?: SubflowNode;
 };
 
@@ -36,9 +41,14 @@ export type TaskNode = {
   name: string;
   resource: string;
   arguments?: TaskArgumentValue;
+  /** JSONPath-only */
   resultSelector?: TaskArgumentValue;
+  /** JSONPath-only */
   resultPath?: string;
+  /** JSONata-only */
   output?: PassContent;
+  /** Variables */
+  assign?: PassAssignMap;
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
   retry?: RetryPolicy[];
@@ -52,7 +62,12 @@ export type InlineCatchStepLike = PassBuilder | PassNode | TaskBuilder | TaskNod
 export type InlineCatchTarget = InlineCatchStepLike | SubflowBuilder | SubflowNode;
 export type CatchTarget = StepName | InlineCatchTarget;
 export type CatchOptions = {
+  /** JSONPath-only */
   resultPath?: string;
+  /** JSONata-only */
+  output?: PassContent;
+  /** Variables */
+  assign?: PassAssignMap;
 };
 
 function isTaskArgumentRecord(value: TaskArgumentValue | undefined): value is Record<string, TaskArgumentValue> {
@@ -87,6 +102,7 @@ function cloneTaskArgumentValue(value: TaskNode["arguments"]): TaskNode["argumen
 function cloneTaskNode(node: TaskNode): TaskNode {
   return {
     ...node,
+    assign: node.assign ? { ...node.assign } : undefined,
     arguments: cloneTaskArgumentValue(node.arguments),
     resultSelector: cloneTaskArgumentValue(node.resultSelector),
     retry: node.retry ? node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] })) : undefined,
@@ -116,6 +132,7 @@ function cloneCatchPolicy(policy: CatchPolicy): CatchPolicy {
   return {
     ...policy,
     ErrorEquals: [...policy.ErrorEquals],
+    Assign: policy.Assign ? { ...policy.Assign } : undefined,
     inlineTarget: policy.inlineTarget ? cloneSubflowNode(policy.inlineTarget) : undefined,
   };
 }
@@ -205,6 +222,18 @@ export class TaskBuilder {
     return this;
   }
 
+  assign(name: string, value: PassAssignValue): this {
+    this.node.assign ??= {};
+    this.node.assign[name] = value;
+    return this;
+  }
+
+  assigns(values: PassAssignMap): this {
+    this.node.assign ??= {};
+    Object.assign(this.node.assign, values);
+    return this;
+  }
+
   resultSelector(selector: TaskArgumentValue): this {
     this.node.resultSelector = selector;
     return this;
@@ -243,6 +272,8 @@ export class TaskBuilder {
       ErrorEquals: normalizedErrors,
       Next: materialized.next,
       ...(options.resultPath ? { ResultPath: options.resultPath } : {}),
+      ...(options.output !== undefined ? { Output: options.output } : {}),
+      ...(options.assign ? { Assign: options.assign } : {}),
       ...(materialized.inlineTarget ? { inlineTarget: materialized.inlineTarget } : {}),
     };
 
@@ -288,6 +319,7 @@ export class TaskBuilder {
       resultSelector: this.node.resultSelector,
       resultPath: this.node.resultPath,
       output: this.node.output,
+      assign: this.node.assign ? { ...this.node.assign } : undefined,
       timeoutSeconds: this.node.timeoutSeconds,
       heartbeatSeconds: this.node.heartbeatSeconds,
       retry: this.node.retry ? [...this.node.retry] : undefined,

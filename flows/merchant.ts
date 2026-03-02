@@ -9,15 +9,19 @@ import { subflow } from "../dsl/subflow";
 import { statesInputSlot } from "../slots/common";
 import { lambdaServiceRetry } from "../slots/package";
 import {
-  merchantLookupKey,
-  merchantProfileSlot,
-  merchantDecisionApproved,
-  merchantDecisionBand,
-  merchantDecisionReasons,
-  merchantDecisionSource,
-  isMerchantAutoApproved,
-  mergeMerchantContextOutput,
-  isMerchantEligible,
+merchantLookupKey,
+  merchantParallelErrorOutput,
+  merchantParallelResultsOutput,
+  merchantDecisionOutput,
+  merchantProfileOutput,
+merchantProfileSlot,
+merchantDecisionApproved,
+merchantDecisionBand,
+merchantDecisionReasons,
+merchantDecisionSource,
+isMerchantAutoApproved,
+mergeMerchantContextOutput,
+isMerchantEligible,
 } from "../slots/merchant";
 
 export const merchantOnboardingDecisionFlow = stateMachine("MerchantOnboardingDecisionFlow")
@@ -32,7 +36,7 @@ export const merchantOnboardingDecisionFlow = stateMachine("MerchantOnboardingDe
         TableName: "${file(resources/index.json):tables.merchants}",
         Key: merchantLookupKey(),
       })
-      .resultPath("$.merchant_profile"),
+      .output(merchantProfileOutput()),
   )
   .then(
     lambdaInvoke("ScoreMerchantOnboarding")
@@ -42,13 +46,7 @@ export const merchantOnboardingDecisionFlow = stateMachine("MerchantOnboardingDe
         request: statesInputSlot(),
         merchantProfile: merchantProfileSlot(),
       })
-      .resultSelector({
-        approved: merchantDecisionApproved(),
-        band: merchantDecisionBand(),
-        reasons: merchantDecisionReasons(),
-        source: merchantDecisionSource(),
-      })
-      .resultPath("$.decision")
+      .output(merchantDecisionOutput())
       .timeoutSeconds(20)
       .retry(lambdaServiceRetry()),
   )
@@ -104,7 +102,7 @@ export const merchantOnboardingParallelFlow = stateMachine("MerchantOnboardingPa
             .payload({ input: statesInputSlot() }),
         ),
       )
-      .resultPath("$.parallel_results"),
+      .output(merchantParallelResultsOutput()),
   )
   .then(
     pass("MergeMerchantContext")

@@ -22,6 +22,8 @@ export type AslTaskCatch = {
   ErrorEquals: string[];
   Next: string;
   ResultPath?: string;
+  Output?: unknown;
+  Assign?: Record<string, unknown>;
 };
 
 export type AslTaskState = {
@@ -32,6 +34,7 @@ export type AslTaskState = {
   ResultSelector?: unknown;
   ResultPath?: string;
   Output?: unknown;
+  Assign?: Record<string, unknown>;
   TimeoutSeconds?: number;
   HeartbeatSeconds?: number;
   Retry?: TaskNode["retry"];
@@ -61,8 +64,12 @@ export type AslParallelState = {
   Type: "Parallel";
   Comment?: string;
   Branches: AslBranchDefinition[];
+  Arguments?: unknown;
+  Output?: unknown;
+  Assign?: Record<string, unknown>;
   ResultSelector?: unknown;
   ResultPath?: string;
+  Retry?: TaskNode["retry"];
   Catch?: AslTaskCatch[];
   Next?: string;
   End?: true;
@@ -82,8 +89,11 @@ export type AslMapState = {
   ItemSelector?: unknown;
   MaxConcurrency?: unknown;
   ItemProcessor: AslItemProcessorDefinition;
+  Output?: unknown;
+  Assign?: Record<string, unknown>;
   ResultSelector?: unknown;
   ResultPath?: string;
+  Retry?: TaskNode["retry"];
   Catch?: AslTaskCatch[];
   Next?: string;
   End?: true;
@@ -189,12 +199,25 @@ function resolveTaskArgumentValue(value: TaskArgumentValue, slots: SlotRegistry)
   return value;
 }
 
-function emitCatchPolicy(policy: CatchPolicy | ParallelCatchPolicy | MapCatchPolicy): AslTaskCatch {
-  return {
+function emitCatchPolicy(
+  policy: CatchPolicy | ParallelCatchPolicy | MapCatchPolicy,
+  slots: SlotRegistry,
+): AslTaskCatch {
+  const out: AslTaskCatch = {
     ErrorEquals: [...policy.ErrorEquals],
     Next: policy.Next,
-    ...(policy.ResultPath ? { ResultPath: policy.ResultPath } : {}),
   };
+
+  if (policy.ResultPath) out.ResultPath = policy.ResultPath;
+
+  if (policy.Output !== undefined) {
+    out.Output = resolveContentValue(policy.Output as PassContent, slots);
+  }
+
+  const assign = resolveAssign((policy as any).Assign as PassAssignMap | undefined, slots);
+  if (assign && Object.keys(assign).length > 0) out.Assign = assign;
+
+  return out;
 }
 
 function emitChoiceRule(rule: ChoiceRule, slots: SlotRegistry): AslChoiceBranch {
@@ -307,13 +330,16 @@ export function emitTaskState(node: TaskNode, slots: SlotRegistry): AslTaskState
   if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots);
   if (node.resultPath !== undefined) state.ResultPath = node.resultPath;
   if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots);
+
+  const assign = resolveAssign(node.assign, slots);
+  if (assign && Object.keys(assign).length > 0) state.Assign = assign;
   if (node.timeoutSeconds !== undefined) state.TimeoutSeconds = node.timeoutSeconds;
   if (node.heartbeatSeconds !== undefined) state.HeartbeatSeconds = node.heartbeatSeconds;
   if (node.retry && node.retry.length > 0) {
     state.Retry = node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] }));
   }
   if (node.catch && node.catch.length > 0) {
-    state.Catch = node.catch.map((policy) => emitCatchPolicy(policy));
+    state.Catch = node.catch.map((policy) => emitCatchPolicy(policy, slots));
   }
   if (node.next) state.Next = node.next;
   else state.End = true;
@@ -346,9 +372,20 @@ export function emitParallelState(node: ParallelNode, slots: SlotRegistry): AslP
   };
 
   if (node.comment) state.Comment = node.comment;
+  if (node.arguments !== undefined) state.Arguments = resolveTaskArgumentValue(node.arguments, slots);
+  if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots);
+
+  const assign = resolveAssign(node.assign, slots);
+  if (assign && Object.keys(assign).length > 0) state.Assign = assign;
+
   if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots);
   if (node.resultPath !== undefined) state.ResultPath = node.resultPath;
-  if (node.catch && node.catch.length > 0) state.Catch = node.catch.map((policy) => emitCatchPolicy(policy));
+
+  if (node.retry && node.retry.length > 0) {
+    state.Retry = node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] }));
+  }
+
+  if (node.catch && node.catch.length > 0) state.Catch = node.catch.map((policy) => emitCatchPolicy(policy, slots));
   if (node.next) state.Next = node.next;
   else state.End = true;
   return state;
@@ -382,9 +419,19 @@ export function emitMapState(node: MapNode, slots: SlotRegistry): AslMapState {
       : node.maxConcurrency;
   }
 
+  if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots);
+
+  const assign = resolveAssign(node.assign, slots);
+  if (assign && Object.keys(assign).length > 0) state.Assign = assign;
+
   if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots);
   if (node.resultPath !== undefined) state.ResultPath = node.resultPath;
-  if (node.catch && node.catch.length > 0) state.Catch = node.catch.map((policy) => emitCatchPolicy(policy));
+
+  if (node.retry && node.retry.length > 0) {
+    state.Retry = node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] }));
+  }
+
+  if (node.catch && node.catch.length > 0) state.Catch = node.catch.map((policy) => emitCatchPolicy(policy, slots));
 
   if (node.next) state.Next = node.next;
   else state.End = true;

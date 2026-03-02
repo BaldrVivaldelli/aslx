@@ -306,6 +306,7 @@ const tests: Array<{ name: string; run: () => void }> = [
       const normalized = asNormalized({
         kind: 'stateMachine',
         name: 'InvalidResultPath',
+        queryLanguage: 'JSONPath',
         states: [
           {
             kind: 'task',
@@ -411,7 +412,7 @@ const tests: Array<{ name: string; run: () => void }> = [
       });
 
       expectValidationError(machine, ['MAP_MISSING_ITEMS'], [
-        'Map state Process must declare items',
+        'Map state Process must declare items(',
       ]);
     },
   },
@@ -421,6 +422,7 @@ const tests: Array<{ name: string; run: () => void }> = [
       const machine = asNormalized({
         kind: 'stateMachine',
         name: 'BrokenMapMissingProcessor',
+        queryLanguage: 'JSONPath',
         states: [
           {
             kind: 'map',
@@ -442,6 +444,7 @@ const tests: Array<{ name: string; run: () => void }> = [
       const machine = asNormalized({
         kind: 'stateMachine',
         name: 'BrokenMapProcessorInvalid',
+        queryLanguage: 'JSONPath',
         states: [
           {
             kind: 'map',

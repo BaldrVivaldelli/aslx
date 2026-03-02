@@ -12,19 +12,22 @@ const slots = {
 
 const tests: Array<{ name: string; run: () => void }> = [
   {
-    name: "emits task ResultSelector and ResultPath",
+    name: "emits task Output and Assign (JSONata)",
     run: () => {
       const definition = emitStateMachine(
         stateMachine("TaskControls")
+          .queryLanguage("JSONata")
           .startWith(
             lambdaInvoke("Compute")
               .functionName("ComputeFunctionArn")
               .payload({ computeMany: "input" })
-              .resultSelector({
-                payload: { __kind: "jsonata_slot", __slotId: "tests:result/payload" },
-                source: { __kind: "jsonata_slot", __slotId: "tests:result/source" },
+              .assign("compute_payload", { __kind: "jsonata_slot", __slotId: "tests:result/payload" })
+              .output({
+                compute: {
+                  payload: { __kind: "jsonata_slot", __slotId: "tests:result/payload" },
+                  source: { __kind: "jsonata_slot", __slotId: "tests:result/source" },
+                },
               })
-              .resultPath("$.compute")
               .timeoutSeconds(30)
               .heartbeatSeconds(10),
           )
@@ -35,11 +38,15 @@ const tests: Array<{ name: string; run: () => void }> = [
 
       const compute = definition.States.Compute;
       assert.equal(compute.Type, "Task");
-      assert.deepEqual(compute.ResultSelector, {
-        payload: '{% ($states.result.Payload) %}',
-        source: '{% ("lambda_invoke") %}',
+      assert.deepEqual(compute.Assign, {
+        compute_payload: "{% ($states.result.Payload) %}",
       });
-      assert.equal(compute.ResultPath, "$.compute");
+      assert.deepEqual(compute.Output, {
+        compute: {
+          payload: "{% ($states.result.Payload) %}",
+          source: '{% ("lambda_invoke") %}',
+        },
+      });
       assert.equal(compute.TimeoutSeconds, 30);
       assert.equal(compute.HeartbeatSeconds, 10);
       assert.equal(compute.Next, "Done");
@@ -60,10 +67,8 @@ for (const test of tests) {
 }
 
 if (failures > 0) {
-  console.error(`
-${failures} task control test(s) failed.`);
+  console.error(`\n${failures} task control test(s) failed.`);
   process.exit(1);
 }
 
-console.log(`
-${tests.length} task control test(s) passed.`);
+console.log(`\n${tests.length} task control test(s) passed.`);

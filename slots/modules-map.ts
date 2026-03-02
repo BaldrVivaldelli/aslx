@@ -1,4 +1,4 @@
-import { slot, exists, count, $states } from "../dsl/jsonata";
+import { slot, $states, merge } from "../dsl/jsonata";
 import type { JsonObject, StatesInput } from "./types";
 
 /** ---- Map business example: Validate modules ---- */
@@ -152,4 +152,37 @@ export function failModuleValidationRuntimeOutput() {
       error: states.input.module_validation_error,
     };
   });
+}
+
+export function validateOneModuleOutput() {
+  return slot("modules:task/validateOneModule/output", () => ({
+    validation: {
+      index: ($states as { input: { index: number } }).input.index,
+      module: ($states as { input: { module: string } }).input.module,
+      valid: ($states as { result: { Payload: { valid: boolean } } }).result.Payload.valid,
+      errors: ($states as { result: { Payload: { errors: unknown[] } } }).result.Payload.errors,
+    },
+  }));
+}
+
+export function validateModulesOutput() {
+  return slot("modules:map/validateModules/output", () =>
+    merge([
+      ($states as { input: Record<string, unknown> }).input,
+      {
+        module_validations: ($states as { result: unknown }).result,
+      },
+    ]),
+  );
+}
+
+export function validateModulesCatchOutput() {
+  return slot("modules:map/validateModules/catchOutput", () =>
+    merge([
+      ($states as { input: Record<string, unknown> }).input,
+      {
+        module_validation_error: ($states as { errorOutput: unknown }).errorOutput,
+      },
+    ]),
+  );
 }

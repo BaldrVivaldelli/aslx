@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { StateMachineBuilder } from '../dsl/state-machine';
 import { buildStateMachineDefinition } from './build-state-machine-definition';
+import { renderMermaid } from './graph';
 
 type SlotRegistry = Record<string, string>;
 
@@ -11,6 +12,8 @@ type CliOptions = {
   input: string;
   slotsPath: string;
   outDir: string;
+  graph: boolean;
+  graphDir?: string;
 };
 
 function parseArgs(argv: string[]): CliOptions {
@@ -19,6 +22,9 @@ function parseArgs(argv: string[]): CliOptions {
   let input = 'machines/index.ts';
   let slotsPath = 'build/slots.json';
   let outDir = 'build/machines';
+
+  let graph = false;
+  let graphDir: string | undefined;
 
   const positional: string[] = [];
 
@@ -40,6 +46,19 @@ function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (current === '--graph' || current === '--graphs') {
+      graph = true;
+      continue;
+    }
+
+    if (current === '--graph-dir') {
+      const next = args.shift();
+      if (!next) throw new Error('Missing value for --graph-dir');
+      graph = true;
+      graphDir = next;
+      continue;
+    }
+
     positional.push(current);
   }
 
@@ -47,7 +66,7 @@ function parseArgs(argv: string[]): CliOptions {
     input = positional[0]!;
   }
 
-  return { input, slotsPath, outDir };
+  return { input, slotsPath, outDir, graph, graphDir };
 }
 
 function toFileStem(value: string): string {
@@ -88,6 +107,9 @@ async function main() {
   const outDir = path.resolve(process.cwd(), options.outDir);
   await mkdir(outDir, { recursive: true });
 
+  const graphOutDir = options.graph ? path.resolve(process.cwd(), options.graphDir ?? path.join(options.outDir, 'graphs')) : undefined;
+  if (graphOutDir) await mkdir(graphOutDir, { recursive: true });
+
   const written: string[] = [];
 
   for (const [exportName, builder] of builders) {
@@ -95,6 +117,11 @@ async function main() {
     const filename = `${toFileStem(exportName)}.json`;
     const filePath = path.join(outDir, filename);
     await writeFile(filePath, `${JSON.stringify(definition, null, 2)}\n`, 'utf8');
+    if (graphOutDir) {
+      const graphFilename = `${toFileStem(exportName)}.mmd`;
+      const graphPath = path.join(graphOutDir, graphFilename);
+      await writeFile(graphPath, renderMermaid(definition), 'utf8');
+    }
     written.push(path.relative(process.cwd(), filePath));
   }
 
@@ -102,6 +129,10 @@ async function main() {
   console.log(`Built ${written.length} state machine definition(s) from ${relativeInput}:`);
   for (const file of written) {
     console.log(`- ${file}`);
+  }
+
+  if (graphOutDir) {
+    console.log(`Graph output directory: ${path.relative(process.cwd(), graphOutDir)}`);
   }
 }
 

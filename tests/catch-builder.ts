@@ -7,6 +7,10 @@ import { stateMachine } from '../dsl/state-machine';
 import { subflow } from '../dsl/subflow';
 import { task } from '../dsl/task';
 
+const slots = {
+  'tests:errorOutput': '{% $states.errorOutput %}',
+};
+
 const tests: Array<{ name: string; run: () => void }> = [
   {
     name: 'emits direct catch targets on task states',
@@ -16,13 +20,13 @@ const tests: Array<{ name: string; run: () => void }> = [
           .startWith(
             task('Work')
               .resource('arn:aws:states:::lambda:invoke')
-              .catch(['States.Timeout'], 'Recover', { resultPath: '$.task_error' })
+              .catch(['States.Timeout'], 'Recover', { output: { task_error: { __kind: 'jsonata_slot', __slotId: 'tests:errorOutput' } } })
               .next('Done'),
           )
           .then(pass('Done').end())
           .then(pass('Recover').end())
           .build(),
-        {},
+        slots,
       );
 
       const work = definition.States.Work;
@@ -31,7 +35,7 @@ const tests: Array<{ name: string; run: () => void }> = [
         {
           ErrorEquals: ['States.Timeout'],
           Next: 'Recover',
-          ResultPath: '$.task_error',
+          Output: { task_error: '{% ($states.errorOutput) %}' },
         },
       ]);
       assert.equal(work.Next, 'Done');
@@ -52,7 +56,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                 ).then(
                   pass('AuditComputeFailure').content({ audited: true, source: 'catch' }),
                 ),
-                { resultPath: '$.compute_error' },
+                { output: { compute_error: { __kind: 'jsonata_slot', __slotId: 'tests:errorOutput' } } },
               ),
           )
           .then(
@@ -61,7 +65,7 @@ const tests: Array<{ name: string; run: () => void }> = [
               .end(),
           )
           .build(),
-        {},
+        slots,
       );
 
       const work = definition.States.ComputeWithRecovery;
@@ -71,7 +75,7 @@ const tests: Array<{ name: string; run: () => void }> = [
         {
           ErrorEquals: ['States.ALL'],
           Next: 'NormalizeComputeError',
-          ResultPath: '$.compute_error',
+          Output: { compute_error: '{% ($states.errorOutput) %}' },
         },
       ]);
 

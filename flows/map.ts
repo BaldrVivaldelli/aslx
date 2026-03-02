@@ -7,23 +7,26 @@ import { stateMachine } from "../dsl/state-machine";
 import { subflow } from "../dsl/subflow";
 
 import {
-  modulesValidationMode,
-  modulesValidationSource,
-  modulesItemsSlot,
-  modulesMapItemIndexSlot,
-  modulesMapItemValueSlot,
-  moduleIterationIndexSlot,
-  moduleIterationModuleSlot,
-  moduleIterationModeSlot,
-  moduleIterationSourceSlot,
-  validateOneModuleValidSlot,
-  validateOneModuleErrorsSlot,
-  moduleIterationValidationOutput,
-  areAllModulesValid,
-  invalidModuleValidations,
-  persistValidatedModulesOutput,
-  rejectInvalidModulesOutput,
-  failModuleValidationRuntimeOutput,
+modulesValidationMode,
+  validateModulesCatchOutput,
+  validateModulesOutput,
+  validateOneModuleOutput,
+modulesValidationSource,
+modulesItemsSlot,
+modulesMapItemIndexSlot,
+modulesMapItemValueSlot,
+moduleIterationIndexSlot,
+moduleIterationModuleSlot,
+moduleIterationModeSlot,
+moduleIterationSourceSlot,
+validateOneModuleValidSlot,
+validateOneModuleErrorsSlot,
+moduleIterationValidationOutput,
+areAllModulesValid,
+invalidModuleValidations,
+persistValidatedModulesOutput,
+rejectInvalidModulesOutput,
+failModuleValidationRuntimeOutput,
 } from "../slots/modules-map";
 
 export const validateModulesMapFlow = stateMachine("ValidateModulesMapFlow")
@@ -53,13 +56,7 @@ export const validateModulesMapFlow = stateMachine("ValidateModulesMapFlow")
               mode: moduleIterationModeSlot(),
               source: moduleIterationSourceSlot(),
             })
-            .resultSelector({
-              index: moduleIterationIndexSlot(),
-              module: moduleIterationModuleSlot(),
-              valid: validateOneModuleValidSlot(),
-              errors: validateOneModuleErrorsSlot(),
-            })
-            .resultPath("$.validation"),
+            .output(validateOneModuleOutput()),
         ).then(
           pass("ReturnModuleValidation")
             .comment("Emits the compact per-module validation object as the iteration output.")
@@ -67,7 +64,7 @@ export const validateModulesMapFlow = stateMachine("ValidateModulesMapFlow")
             .end(),
         ),
       )
-      .resultPath("$.module_validations")
+      .output(validateModulesOutput())
       .catchAll(
         subflow(
           pass("FailModuleValidationRuntime")
@@ -75,7 +72,7 @@ export const validateModulesMapFlow = stateMachine("ValidateModulesMapFlow")
             .content(failModuleValidationRuntimeOutput())
             .end(),
         ),
-        { resultPath: "$.module_validation_error" },
+        { output: validateModulesCatchOutput() },
       ),
   )
   .then(

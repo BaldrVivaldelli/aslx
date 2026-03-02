@@ -3,7 +3,7 @@ import { pass } from "../dsl/steps";
 import { stateMachine } from "../dsl/state-machine";
 import { subflow } from "../dsl/subflow";
 
-import { statesInputSlot } from "../slots/common";
+import { statesInputSlot, computeErrorCatchOutput } from "../slots/common";
 import { computeManyOutput, lambdaServiceRetry } from "../slots/package";
 
 export const exampleFlowWithCatch = stateMachine("ExampleFlowWithCatch")
@@ -32,7 +32,7 @@ export const exampleFlowWithCatch = stateMachine("ExampleFlowWithCatch")
               source: "catch",
             }),
         ),
-        { resultPath: "$.compute_error" },
+        { output: computeErrorCatchOutput() },
       ),
   )
   .then(

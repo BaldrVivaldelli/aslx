@@ -11,6 +11,8 @@ import { subflow } from '../dsl/subflow';
 const slots = {
   'tests:parallel/input': '{% $states.input %}',
   'tests:parallel/eligible': '{% true %}',
+  'tests:parallel/result': '{% $states.result %}',
+  'tests:parallel/errorOutput': '{% $states.errorOutput %}',
 };
 
 const tests: Array<{ name: string; run: () => void }> = [
@@ -35,7 +37,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                     .payload({ input: { __kind: 'jsonata_slot', __slotId: 'tests:parallel/input' } }),
                 ),
               )
-              .resultPath('$.parallel_results'),
+              .output({ parallel_results: { __kind: 'jsonata_slot', __slotId: 'tests:parallel/result' } }),
           )
           .then(pass('AfterParallel').end())
           .build(),
@@ -44,7 +46,7 @@ const tests: Array<{ name: string; run: () => void }> = [
 
       const prepare = definition.States.PrepareContext;
       assert.equal(prepare.Type, 'Parallel');
-      assert.equal(prepare.ResultPath, '$.parallel_results');
+      assert.deepEqual(prepare.Output, { parallel_results: '{% ($states.result) %}' });
       assert.equal(prepare.Next, 'AfterParallel');
       assert.equal(prepare.Branches.length, 2);
       assert.equal(prepare.Branches[0]?.StartAt, 'LoadMerchant');
@@ -71,7 +73,7 @@ const tests: Array<{ name: string; run: () => void }> = [
                 subflow(
                   pass('RecoverParallelFailure').content({ ok: false, source: 'parallel' }),
                 ),
-                { resultPath: '$.parallel_error' },
+                { output: { parallel_error: { __kind: 'jsonata_slot', __slotId: 'tests:parallel/errorOutput' } } },
               ),
           )
           .then(pass('AfterRecovery').end())
@@ -85,7 +87,7 @@ const tests: Array<{ name: string; run: () => void }> = [
         {
           ErrorEquals: ['States.ALL'],
           Next: 'RecoverParallelFailure',
-          ResultPath: '$.parallel_error',
+          Output: { parallel_error: '{% ($states.errorOutput) %}' },
         },
       ]);
 

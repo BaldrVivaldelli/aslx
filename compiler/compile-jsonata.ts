@@ -1091,6 +1091,9 @@ function compileOnce(entryAbsFile: string, outFile: string | null) {
     const out: Record<string, string> = {};
     for (const [slotId, entry] of sorted) out[slotId] = entry.expr;
 
+    const outMap: Record<string, { expr: string; origin: { file: string; line: number; col: number } }> = {};
+    for (const [slotId, entry] of sorted) outMap[slotId] = entry;
+
     if (!outFile) {
         for (const [k, v] of Object.entries(out)) {
             console.log(`
@@ -1104,6 +1107,10 @@ function compileOnce(entryAbsFile: string, outFile: string | null) {
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(outFile, JSON.stringify(out, null, 2) + "\n", "utf8");
     console.log(`✅ wrote ${Object.keys(out).length} slots to ${outFile}`);
+
+    const mapFile = outFile.endsWith(".json") ? outFile.replace(/\.json$/, ".map.json") : `${outFile}.map.json`;
+    fs.writeFileSync(mapFile, JSON.stringify(outMap, null, 2) + "\n", "utf8");
+    console.log(`✅ wrote slot origin map to ${mapFile}`);
 }
 
 const { input, outFile, watch } = parseArgs(process.argv);

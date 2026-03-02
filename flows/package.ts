@@ -7,6 +7,8 @@ import { stateMachine } from "../dsl/state-machine";
 import { statesInputSlot } from "../slots/common";
 import {
   packageKey,
+  computeManyEnrichedOutput,
+  getPackageOutput,
   lambdaPayloadSlot,
   lambdaExecutedSource,
   lambdaServiceRetry,
@@ -28,7 +30,7 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
         TableName: "${file(resources/index.json):tables.providers}",
         Key: packageKey(),
       })
-      .resultPath("$.query_result"),
+      .output(getPackageOutput()),
   )
   .then(
     lambdaInvoke("PreparePackageModules")
@@ -54,11 +56,7 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
       .payload({
         computeMany: statesInputSlot(),
       })
-      .resultSelector({
-        payload: lambdaPayloadSlot(),
-        source: lambdaExecutedSource(),
-      })
-      .resultPath("$.compute")
+      .output(computeManyEnrichedOutput())
       .timeoutSeconds(30)
       .heartbeatSeconds(10)
       .retry(lambdaServiceRetry())
@@ -76,19 +74,16 @@ export const packageComputationFlow = stateMachine("PackageComputationFlow")
 
 export const exampleFlowWithTaskResultControls = stateMachine("ExampleFlowWithTaskResultControls")
   .queryLanguage("JSONata")
-  .comment("Demonstrates ResultSelector, ResultPath, TimeoutSeconds, and HeartbeatSeconds on Lambda tasks.")
+  .comment("Demonstrates Output, Assign, TimeoutSeconds, and HeartbeatSeconds on Lambda tasks when using JSONata.")
   .startWith(
     lambdaInvoke("ComputeManyWithControls")
-      .comment("Invokes the computation Lambda and stores a selected result payload under $.compute.")
+      .comment("Invokes the computation Lambda and shapes the state output under $.compute while assigning the raw payload to a variable.")
       .functionName("${file(resources/index.json):cross_lambdas.methods}")
       .payload({
         computeMany: statesInputSlot(),
       })
-      .resultSelector({
-        payload: lambdaPayloadSlot(),
-        source: lambdaExecutedSource(),
-      })
-      .resultPath("$.compute")
+      .assign("compute_payload", lambdaPayloadSlot())
+      .output(computeManyEnrichedOutput())
       .timeoutSeconds(45)
       .heartbeatSeconds(15),
   )

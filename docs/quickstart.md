@@ -14,7 +14,7 @@ From the repo root:
 
 ```bash
 npm i
-npx tsx compiler/compile-jsonata.ts example/infra.ts --out build/slots.json
+npx tsx compiler/compile-jsonata.ts machines/index.ts --out build/slots.json
 ```
 
 The compiler extracts every `slot("...")` / `toJsonata(..., __slot("..."))` call in your entry file and writes JSONata strings to `build/slots.json`.
@@ -361,4 +361,4 @@ map("ValidateItems")
   .resultPath("$.validated_items")
 ```
 
-For a full business example, see `docs/map.md` and `validateModulesMapFlow` in `example/infra.ts`.
+For a full business example, see `docs/map.md` and `validateModulesMapFlow` in `machines/index.ts`.

@@ -12,7 +12,7 @@ type CliOptions = {
 function parseArgs(argv: string[]): CliOptions {
   const positional = argv.filter((arg) => !arg.startsWith('--'));
   return {
-    input: positional[0] ?? 'example/infra.ts',
+    input: positional[0] ?? 'machines/index.ts',
   };
 }
 

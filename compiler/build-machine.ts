@@ -16,7 +16,7 @@ type CliOptions = {
 function parseArgs(argv: string[]): CliOptions {
   const args = [...argv];
 
-  let input = 'example/infra.ts';
+  let input = 'machines/index.ts';
   let slotsPath = 'build/slots.json';
   let outDir = 'build/machines';
 

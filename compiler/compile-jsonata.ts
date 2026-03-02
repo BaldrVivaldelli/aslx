@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseSync } from "@swc/core";
+import { buildModuleGraph } from "./module-graph";
 
 /** ---------------- IR ---------------- */
 type KeyIR = { k: "Str"; v: string } | { k: "Expr"; e: ExprIR };
@@ -107,7 +108,7 @@ const BUILTINS: Record<string, string> = {
 };
 
 /** ---------------- Extraction: toJsonata calls ---------------- */
-type Found = { slotId: string; fnNode: any };
+type Found = { slotId: string; fnNode: any; spanStart?: number };
 
 function extractToJsonataCalls(
     source: string,
@@ -161,7 +162,7 @@ function extractToJsonataCalls(
                     );
                 }
 
-                found.push({ slotId, fnNode: fnArg });
+                found.push({ slotId, fnNode: fnArg, spanStart: node.span?.start });
             }
         }
 
@@ -1000,7 +1001,7 @@ function printExpr(e: ExprIR): string {
 /** ---------------- CLI ---------------- */
 function parseArgs(argv: string[]) {
     const args = argv.slice(2);
-    let input = "infra.ts";
+    let input = "machines/index.ts";
     let outFile: string | null = null;
     let watch = false;
 
@@ -1021,34 +1022,88 @@ function debounce<T extends (...args: any[]) => void>(fn: T, ms: number) {
     };
 }
 
-function compileOnce(absFile: string, outFile: string | null) {
-    const src = fs.readFileSync(absFile, "utf8");
-    const lineMap = new LineMap(src);
-    const fail = mkFail(absFile, lineMap);
+function shouldScanForSlots(filePath: string): boolean {
+    const rel = path.relative(process.cwd(), filePath).split(path.sep).join("/");
 
-    const imports = resolveImports(absFile, src, fail);
-    const udfIndex: UdfIndex = new Map([...imports.udfs]);
-    const namespaces = imports.namespaces;
+    // Skip library / tooling sources. These can contain internal helper calls like
+    // `toJsonata(fn, __slot(slotId))` that are not real slots to compile.
+    if (rel.startsWith("dsl/")) return false;
+    if (rel.startsWith("compiler/")) return false;
+    if (rel.startsWith("tests/")) return false;
+    if (rel.startsWith("testdata/")) return false;
+    if (rel.startsWith("build/")) return false;
+    return true;
+}
 
-    const calls = extractToJsonataCalls(src, fail);
+function formatLoc(filePath: string, lineMap: LineMap, spanStart?: number): string {
+    if (spanStart == null) return filePath;
+    const { line, col } = lineMap.pos(spanStart);
+    return `${filePath}:${line}:${col}`;
+}
 
-    const slots: Record<string, string> = {};
-    for (const c of calls) {
-        const prog = lowerProgram(c.fnNode, udfIndex, namespaces, fail);
-        slots[c.slotId] = printJsonata(prog);
+function compileOnce(entryAbsFile: string, outFile: string | null) {
+    // Clear caches to ensure watch mode reflects changes across the whole module graph.
+    moduleCache.clear();
+
+    const graph = buildModuleGraph(entryAbsFile, { projectRoot: process.cwd() });
+
+    const slots = new Map<
+        string,
+        { expr: string; origin: { file: string; line: number; col: number } }
+    >();
+
+    for (const filePath of graph.files) {
+        if (!shouldScanForSlots(filePath)) continue;
+
+        const src = fs.readFileSync(filePath, "utf8");
+        const lineMap = new LineMap(src);
+        const fail = mkFail(filePath, lineMap);
+
+        const imports = resolveImports(filePath, src, fail);
+        const udfIndex: UdfIndex = new Map([...imports.udfs]);
+        const namespaces = imports.namespaces;
+
+        const calls = extractToJsonataCalls(src, fail);
+
+        for (const c of calls) {
+            if (slots.has(c.slotId)) {
+                const first = slots.get(c.slotId)!;
+                throw new Error(
+                    `Duplicate slotId "${c.slotId}"
+- ${first.origin.file}:${first.origin.line}:${first.origin.col}
+- ${formatLoc(filePath, lineMap, c.spanStart)}`,
+                );
+            }
+
+            const prog = lowerProgram(c.fnNode, udfIndex, namespaces, fail);
+            const expr = printJsonata(prog);
+
+            const loc = c.spanStart != null ? lineMap.pos(c.spanStart) : { line: 1, col: 1 };
+            slots.set(c.slotId, {
+                expr,
+                origin: { file: filePath, line: loc.line, col: loc.col },
+            });
+        }
     }
 
+    // Stable output ordering: sort by slotId.
+    const sorted = [...slots.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const out: Record<string, string> = {};
+    for (const [slotId, entry] of sorted) out[slotId] = entry.expr;
+
     if (!outFile) {
-        for (const [k, v] of Object.entries(slots)) {
-            console.log(`\n=== SLOT ${k} ===\n`);
+        for (const [k, v] of Object.entries(out)) {
+            console.log(`
+=== SLOT ${k} ===
+`);
             console.log(v);
         }
         return;
     }
 
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
-    fs.writeFileSync(outFile, JSON.stringify(slots, null, 2) + "\n", "utf8");
-    console.log(`✅ wrote ${Object.keys(slots).length} slots to ${outFile}`);
+    fs.writeFileSync(outFile, JSON.stringify(out, null, 2) + "\n", "utf8");
+    console.log(`✅ wrote ${Object.keys(out).length} slots to ${outFile}`);
 }
 
 const { input, outFile, watch } = parseArgs(process.argv);
@@ -1066,11 +1121,21 @@ const run = () => {
 
 run();
 
+
 if (watch) {
     const rerun = debounce(run, 80);
-    fs.watch(path.dirname(absFile), { recursive: true }, (_evt, filename) => {
+
+    fs.watch(process.cwd(), { recursive: true }, (_evt, filename) => {
         if (!filename) return;
-        if (filename.endsWith(".ts") || filename.endsWith(".tsx")) rerun();
+
+        const rel = filename.split(path.sep).join("/");
+
+        // Ignore noisy paths.
+        if (rel.startsWith("node_modules/")) return;
+        if (rel.startsWith("build/")) return;
+
+        if (rel.endsWith(".ts") || rel.endsWith(".tsx")) rerun();
     });
+
     console.log("👀 watching for changes...");
 }

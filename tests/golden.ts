@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const projectRoot = process.cwd();
-const sourceInput = 'example/infra.ts';
+const sourceInput = 'machines/index.ts';
 const goldenRoot = path.join(projectRoot, 'testdata', 'golden');
 const goldenSlots = path.join(goldenRoot, 'slots.json');
 const goldenMachinesDir = path.join(goldenRoot, 'machines');

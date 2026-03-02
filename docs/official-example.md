@@ -139,7 +139,7 @@ The Lambda result likely contains more than the flow should carry forward. Selec
 
 When you already have a list of items in your request payload and you need to run the **same workflow for each item**, prefer `map(...)`.
 
-The repository includes an end-to-end example named **`validateModulesMapFlow`** (see `example/infra.ts`).
+The repository includes an end-to-end example named **`validateModulesMapFlow`** (see `machines/index.ts`).
 
 It shows a “business-shaped” Map:
 

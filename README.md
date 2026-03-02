@@ -152,7 +152,7 @@ npm i @swc/core tsx
 # ▶️ Compile
 
 ``` bash
-npx tsx compiler/compile-jsonata.ts example/infra.ts
+npx tsx compiler/compile-jsonata.ts machines/index.ts
 ```
 
 ------------------------------------------------------------------------
@@ -160,7 +160,7 @@ npx tsx compiler/compile-jsonata.ts example/infra.ts
 # 👀 Watch mode
 
 ``` bash
-npx tsx compiler/compile-jsonata.ts example/infra.ts --out build/slots.json --watch
+npx tsx compiler/compile-jsonata.ts machines/index.ts --out build/slots.json --watch
 ```
 
 ------------------------------------------------------------------------
@@ -327,7 +327,7 @@ Exactly your Osiris/Nave vision.
 ------------------------------------------------------------------------
 ## Task support
 
-The project now includes a generic `task(...)` builder for aws-sdk tasks and `lambdaInvoke(...)` as focused sugar for Lambda Step Functions tasks. See `example/infra.ts` and `docs/quickstart.md` for concrete examples.
+The project now includes a generic `task(...)` builder for aws-sdk tasks and `lambdaInvoke(...)` as focused sugar for Lambda Step Functions tasks. See `machines/index.ts` and `docs/quickstart.md` for concrete examples.
 
 ------------------------------------------------------------------------
 ## Golden tests

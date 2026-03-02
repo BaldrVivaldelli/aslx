@@ -142,7 +142,7 @@ map("ValidateItems")
 
 A realistic Map use-case is “validate a list of domain modules”, then make a decision based on the aggregated results.
 
-See **`validateModulesMapFlow`** in `example/infra.ts`. It demonstrates:
+See **`validateModulesMapFlow`** in `machines/index.ts`. It demonstrates:
 
 - **`items(...)`** reading `modules` from the incoming request via `modulesItemsSlot()`
 - **`itemSelector(...)`** lifting Map context + request metadata into each iteration input:
@@ -152,7 +152,7 @@ See **`validateModulesMapFlow`** in `example/infra.ts`. It demonstrates:
 - **`resultPath("$.module_validations")`** so downstream states can read the array under a stable business key
 - A `choice(...)` that composes conditions with `all(...)`, `any(...)`, `eq(...)`, and `neq(...)`
 
-Minimal excerpt (full flow in `example/infra.ts`):
+Minimal excerpt (full flow in `machines/index.ts`):
 
 ```ts
 export const validateModulesMapFlow = stateMachine("ValidateModulesMapFlow")

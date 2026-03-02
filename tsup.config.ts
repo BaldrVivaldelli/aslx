@@ -36,12 +36,15 @@ export default defineConfig([
     format: ['esm'],
     dts: false,
     sourcemap: false,
-    bundle: false,
+    bundle: true,
     clean: false,
     outDir: 'dist',
     target: 'node20',
     platform: 'node',
-    splitting: true,
+
+    // ✅ clave: no generar chunks
+    splitting: false,
+
     treeshake: true,
     external: ['@swc/core', 'tsx', 'yaml'],
     outExtension() {

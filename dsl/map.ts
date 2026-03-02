@@ -8,6 +8,7 @@ import type { SubflowNode } from "./subflow";
 import { SubflowBuilder, subflow } from "./subflow";
 import type { RetryPolicy, TaskArgumentValue, TaskNode } from "./task";
 import { TaskBuilder } from "./task";
+import { cloneChoiceNode } from "./choice";
 
 /**
  * Map state builder (Inline mode).
@@ -117,17 +118,6 @@ function cloneTaskNode(node: TaskNode): TaskNode {
       Assign: policy.Assign ? { ...policy.Assign } : undefined,
       inlineTarget: policy.inlineTarget ? cloneSubflowNode(policy.inlineTarget) : undefined,
     })) : undefined,
-  };
-}
-
-function cloneChoiceNode(node: import("./choice").ChoiceNode): import("./choice").ChoiceNode {
-  return {
-    ...node,
-    choices: node.choices.map((rule) => ({
-      ...rule,
-      inlineTarget: rule.inlineTarget ? cloneSubflowNode(rule.inlineTarget) : undefined,
-    })),
-    otherwiseInlineTarget: node.otherwiseInlineTarget ? cloneSubflowNode(node.otherwiseInlineTarget) : undefined,
   };
 }
 

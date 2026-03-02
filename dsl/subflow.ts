@@ -5,7 +5,7 @@ import { RawStateBuilder } from "./raw-state";
 import type { PassNode } from "./steps";
 import { PassBuilder } from "./steps";
 import type { TaskNode } from "./task";
-import { TaskBuilder } from "./task";
+import { cloneTaskArgumentValue, TaskBuilder } from "./task";
 
 export type SubflowStepNode = PassNode | TaskNode | ChoiceNode | RawStateNode;
 export type SubflowStepLike =
@@ -42,17 +42,21 @@ function clonePassNode(node: PassNode): PassNode {
   };
 }
 
-function cloneTaskArgumentValue(value: TaskNode["arguments"]): TaskNode["arguments"] {
-  if (value === undefined) return undefined;
-  if (Array.isArray(value)) return value.map((item) => cloneTaskArgumentValue(item) as never);
-  if (value !== null && typeof value === "object" && !("__kind" in value)) {
-    const out: Record<string, NonNullable<TaskNode["arguments"]>> = {};
-    for (const [key, item] of Object.entries(value)) {
-      out[key] = cloneTaskArgumentValue(item as NonNullable<TaskNode["arguments"]>);
-    }
-    return out as TaskNode["arguments"];
-  }
-  return value;
+export function cloneSubflowNode(node: SubflowNode): SubflowNode {
+  return {
+    kind: "subflow",
+    states: node.states.map((state) => {
+      if (state.kind === "pass") return clonePassNode(state);
+      if (state.kind === "task") return cloneTaskNode(state);
+      if (state.kind === "raw") {
+        return {
+          ...state,
+          asl: structuredClone((state as RawStateNode).asl),
+        } as RawStateNode;
+      }
+      return cloneChoiceNode(state);
+    }),
+  };
 }
 
 function cloneTaskNode(node: TaskNode): TaskNode {

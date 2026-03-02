@@ -1,4 +1,4 @@
-import type { AslStateMachineDefinition } from "./emit-asl";
+import type { AslStateMachineDefinition } from "./asl-types";
 
 type MachineLike = {
   StartAt: string;

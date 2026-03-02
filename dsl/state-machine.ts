@@ -11,7 +11,7 @@ import { RawStateBuilder } from "./raw-state";
 import type { PassNode } from "./steps";
 import { PassBuilder } from "./steps";
 import type { SubflowNode } from "./subflow";
-import type { TaskNode } from "./task";
+import type { TaskArgumentValue, TaskNode } from "./task";
 import { TaskBuilder } from "./task";
 
 export type StateMachineQueryLanguage = "JSONata" | "JSONPath";
@@ -64,18 +64,22 @@ function clonePassNode(node: PassNode): PassNode {
   };
 }
 
-function cloneTaskArgumentValue(value: TaskNode["arguments"]): TaskNode["arguments"] {
+function cloneTaskArgumentValue(value: TaskArgumentValue | undefined): TaskArgumentValue | undefined {
   if (value === undefined) return undefined;
+
   if (Array.isArray(value)) {
-    return value.map((item) => cloneTaskArgumentValue(item) as NonNullable<TaskNode["arguments"]>[number]);
+    return value.map((item) => cloneTaskArgumentValue(item) as TaskArgumentValue);
   }
+
+  // Plain object (NOT JsonataSlot)
   if (value !== null && typeof value === "object" && !("__kind" in value)) {
-    const out: Record<string, NonNullable<TaskNode["arguments"]>> = {};
+    const out: Record<string, TaskArgumentValue> = {};
     for (const [key, item] of Object.entries(value)) {
-      out[key] = cloneTaskArgumentValue(item as NonNullable<TaskNode["arguments"]>);
+      out[key] = cloneTaskArgumentValue(item as TaskArgumentValue) as TaskArgumentValue;
     }
-    return out as TaskNode["arguments"];
+    return out;
   }
+
   return value;
 }
 

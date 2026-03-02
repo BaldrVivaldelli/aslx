@@ -86,22 +86,24 @@ function clonePassNode(node: PassNode): PassNode {
   };
 }
 
-function cloneTaskArgumentValue(value: TaskNode["arguments"]): TaskNode["arguments"] {
+export function cloneTaskArgumentValue(value: TaskArgumentValue): TaskArgumentValue;
+export function cloneTaskArgumentValue(value: TaskArgumentValue | undefined): TaskArgumentValue | undefined;
+export function cloneTaskArgumentValue(value: TaskArgumentValue | undefined): TaskArgumentValue | undefined {
   if (value === undefined) return undefined;
   if (Array.isArray(value)) {
-    return value.map((item) => cloneTaskArgumentValue(item) as never);
+    return value.map((item) => cloneTaskArgumentValue(item));
   }
-  if (value !== null && typeof value === "object" && !("__kind" in value)) {
-    const out: Record<string, NonNullable<TaskNode["arguments"]>> = {};
+  if (isTaskArgumentRecord(value)) {
+    const out: Record<string, TaskArgumentValue> = {};
     for (const [key, item] of Object.entries(value)) {
-      out[key] = cloneTaskArgumentValue(item as NonNullable<TaskNode["arguments"]>);
+      out[key] = cloneTaskArgumentValue(item);
     }
-    return out as TaskNode["arguments"];
+    return out;
   }
   return value;
 }
 
-function cloneTaskNode(node: TaskNode): TaskNode {
+export function cloneTaskNode(node: TaskNode): TaskNode {
   return {
     ...node,
     assign: node.assign ? { ...node.assign } : undefined,

@@ -5,9 +5,9 @@ import type { RawStateNode } from "./raw-state";
 import type { PassNode, StepName } from "./steps";
 import { PassBuilder } from "./steps";
 import type { SubflowNode } from "./subflow";
-import { SubflowBuilder, subflow } from "./subflow";
-import type { TaskNode } from "./task";
-import { TaskBuilder } from "./task";
+import { SubflowBuilder, cloneSubflowNode, subflow } from "./subflow";
+import type { TaskArgumentValue, TaskNode } from "./task";
+import { cloneTaskNode, TaskBuilder } from "./task";
 
 export type InlineSubflowStepLike = PassBuilder | PassNode | TaskBuilder | TaskNode;
 export type InlineSubflowTarget = InlineSubflowStepLike | SubflowBuilder | SubflowNode;
@@ -37,33 +37,42 @@ function clonePassNode(node: PassNode): PassNode {
   };
 }
 
-function cloneTaskArgumentValue(value: TaskNode["arguments"]): TaskNode["arguments"] {
-  if (value === undefined) return undefined;
-  if (Array.isArray(value)) return value.map((item) => cloneTaskArgumentValue(item) as never);
-  if (value !== null && typeof value === "object" && !("__kind" in value)) {
-    const out: Record<string, NonNullable<TaskNode["arguments"]>> = {};
-    for (const [key, item] of Object.entries(value)) {
-      out[key] = cloneTaskArgumentValue(item as NonNullable<TaskNode["arguments"]>);
-    }
-    return out as TaskNode["arguments"];
-  }
-  return value;
-}
+// function cloneTaskArgumentValue(value: TaskArgumentValue): TaskArgumentValue;
+// function cloneTaskArgumentValue(value: TaskArgumentValue | undefined): TaskArgumentValue | undefined;
+// function cloneTaskArgumentValue(value: TaskArgumentValue | undefined): TaskArgumentValue | undefined {
+//   if (value === undefined) return undefined;
 
-function cloneTaskNode(node: TaskNode): TaskNode {
-  return {
-    ...node,
-    arguments: cloneTaskArgumentValue(node.arguments),
-    retry: node.retry ? node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] })) : undefined,
-    catch: node.catch ? node.catch.map((policy) => ({
-      ...policy,
-      ErrorEquals: [...policy.ErrorEquals],
-      inlineTarget: policy.inlineTarget ? cloneSubflowNode(policy.inlineTarget) : undefined,
-    })) : undefined,
-  };
-}
+//   if (Array.isArray(value)) {
+//     // value es TaskArgumentValue[], pero cada item puede ser TaskArgumentValue (no undefined)
+//     return value.map((item) => cloneTaskArgumentValue(item));
+//   }
 
-function cloneChoiceNode(node: ChoiceNode): ChoiceNode {
+//   if (value !== null && typeof value === "object" && !("__kind" in value)) {
+//     const out: Record<string, TaskArgumentValue> = {};
+//     for (const [key, item] of Object.entries(value)) {
+//       // item puede ser TaskArgumentValue | undefined dependiendo de tu tipo de record
+//       out[key] = cloneTaskArgumentValue(item as TaskArgumentValue);
+//     }
+//     return out;
+//   }
+
+//   return value;
+// }
+
+// function cloneTaskNode(node: TaskNode): TaskNode {
+//   return {
+//     ...node,
+//     arguments: cloneTaskArgumentValue(node.arguments),
+//     retry: node.retry ? node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] })) : undefined,
+//     catch: node.catch ? node.catch.map((policy) => ({
+//       ...policy,
+//       ErrorEquals: [...policy.ErrorEquals],
+//       inlineTarget: policy.inlineTarget ? cloneSubflowNode(policy.inlineTarget) : undefined,
+//     })) : undefined,
+//   };
+// }
+
+export function cloneChoiceNode(node: ChoiceNode): ChoiceNode {
   return {
     ...node,
     choices: node.choices.map((rule) => ({
@@ -76,22 +85,7 @@ function cloneChoiceNode(node: ChoiceNode): ChoiceNode {
   };
 }
 
-function cloneSubflowNode(node: SubflowNode): SubflowNode {
-  return {
-    kind: "subflow",
-    states: node.states.map((state) => {
-      if (state.kind === "pass") return clonePassNode(state);
-      if (state.kind === "task") return cloneTaskNode(state);
-      if (state.kind === "raw") {
-        return {
-          ...state,
-          asl: structuredClone((state as RawStateNode).asl),
-        } as RawStateNode;
-      }
-      return cloneChoiceNode(state);
-    }),
-  };
-}
+
 
 function isPassBuilder(target: InlineSubflowStepLike): target is PassBuilder {
   return target instanceof PassBuilder;

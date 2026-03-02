@@ -7,6 +7,7 @@ import type { StateMachineNode, StateMachineQueryLanguage, StepNode } from "../d
 import type { RawStateNode } from "../dsl/raw-state";
 import type { PassAssignMap, PassContent, PassNode } from "../dsl/steps";
 import type { CatchPolicy, TaskArgumentValue, TaskNode } from "../dsl/task";
+import type { AslStateMachineDefinition } from "./asl-types";
 
 export type SlotRegistry = Record<string, string>;
 
@@ -117,12 +118,6 @@ export type AslRawState = {
 export type AslState = AslPassState | AslTaskState | AslChoiceState | AslParallelState | AslMapState | AslRawState;
 export type AslStates = Record<string, AslState>;
 
-export type AslStateMachineDefinition = {
-  QueryLanguage?: StateMachineQueryLanguage;
-  Comment?: string;
-  StartAt: string;
-  States: AslStates;
-};
 
 type BranchStateNode = PassNode | TaskNode | ChoiceNode | RawStateNode;
 

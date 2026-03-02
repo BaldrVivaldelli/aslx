@@ -16,7 +16,7 @@ export default defineConfig([
     splitting: true,
     treeshake: true,
     bundle: false,
-    external: ['@swc/core', 'tsx', 'yaml'],
+    external: ['@swc/core', 'tsx', 'yaml', 'typescript'],
     // When `package.json#type` is "module", emitting CommonJS as `.js` would break at runtime.
     // Force `.cjs` for CJS and keep `.js` for ESM.
     outExtension({ format }) {

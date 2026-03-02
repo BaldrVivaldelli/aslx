@@ -41,12 +41,9 @@ export default defineConfig([
     outDir: 'dist',
     target: 'node20',
     platform: 'node',
-
-    // ✅ clave: no generar chunks
     splitting: false,
-
     treeshake: true,
-    external: ['@swc/core', 'tsx', 'yaml'],
+    external: ['@swc/core', 'tsx', 'yaml', 'typescript'],
     outExtension() {
       return { js: '.js' };
     },

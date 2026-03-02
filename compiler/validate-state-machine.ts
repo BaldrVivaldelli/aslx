@@ -216,7 +216,17 @@ function isInteger(value: number): boolean {
 }
 
 function isLikelyJsonPath(value: string): boolean {
-  return value === "$" || /^\$\.[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+)*$/.test(value);
+  // Acepta las formas más comunes:
+  // - "$"
+  // - "$.a.b"
+  // - "$[0]"
+  // - "$['a-b']"
+  // - "$[\"a-b\"]"
+  return (
+    value === "$" ||
+    value.startsWith("$.") ||
+    value.startsWith("$[")
+  );
 }
 
 function validateTaskState(

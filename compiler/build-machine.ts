@@ -6,7 +6,7 @@ import 'tsx';
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 import { StateMachineBuilder } from '../dsl/state-machine';
 import { buildStateMachineDefinition } from './build-state-machine-definition';

@@ -18,7 +18,6 @@ export type PassAssignMap = Record<string, PassAssignValue>;
 export type PassNode = {
   kind: "pass";
   name: string;
-  /** Optional state-level query language override (emits `QueryLanguage` in the state object). */
   queryLanguage?: StateMachineQueryLanguage;
   content?: PassContent;
   assign?: PassAssignMap;

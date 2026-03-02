@@ -2,65 +2,89 @@
 
 `catch(...)` is supported on `task(...)` and on sugars built on top of it such as `lambdaInvoke(...)` and `awsSdkTask(...)`.
 
+Catchers can target:
+
+- a **direct state name** (`"Recover"`)
+- an **inline subflow** (`subflow(...).then(...)`)
+
+## JSONata vs JSONPath catch fields
+
+Catch field names differ by `QueryLanguage`:
+
+- **JSONPath**: use `ResultPath`
+- **JSONata**: use `Output` and/or `Assign` (with `$states.errorOutput`)
+
+The validator will flag incompatible fields.
+
 ## Direct catch target
 
+### JSONata example
+
 ```ts
+import { lambdaInvoke } from "../dsl/lambda";
+import { pass } from "../dsl/steps";
+import { slot } from "../dsl/jsonata";
+
 lambdaInvoke("ComputeMany")
-  .functionName("${file(resources/index.json):cross_lambdas.methods}")
-  .payload({
-    computeMany: statesInputSlot(),
-  })
-  .catch(
-    [
-      "Lambda.ServiceException",
-      "Lambda.TooManyRequestsException",
-    ],
+  .functionName("ComputeArn")
+  .payload({ input: slot("example:input", () => $states.input) })
+  .catchAll(
     "RecoverComputeFailure",
-    { resultPath: "$.compute_error" },
-  )
-  .next("AfterComputeAttempt")
-```
-
-This emits:
-
-```json
-{
-  "Type": "Task",
-  "Resource": "arn:aws:states:::lambda:invoke",
-  "Catch": [
     {
-      "ErrorEquals": [
-        "Lambda.ServiceException",
-        "Lambda.TooManyRequestsException"
-      ],
-      "Next": "RecoverComputeFailure",
-      "ResultPath": "$.compute_error"
-    }
-  ],
-  "Next": "AfterComputeAttempt"
-}
+      assign: {
+        compute_error: slot("example:err", () => $states.errorOutput),
+      },
+      output: slot("example:catch/output", () => ({
+        ok: false,
+        reason: "compute_failed",
+        error: $states.errorOutput,
+      })),
+    },
+  )
+  .next("AfterComputeAttempt");
+
+pass("RecoverComputeFailure").content({ ok: false }).next("AfterComputeAttempt");
 ```
 
-## Catch all
+### JSONPath example
 
 ```ts
-lambdaInvoke("ComputeMany")
-  .functionName("ComputeFunctionArn")
-  .payload({ computeMany: statesInputSlot() })
-  .catchAll("RecoverComputeFailure", { resultPath: "$.compute_error" })
-  .next("AfterComputeAttempt")
-```
+import { rawState } from "../dsl/raw-state";
 
-`catchAll(...)` is shorthand for `catch(["States.ALL"], ...)`.
+rawState("LegacyJsonPathTask", {
+  QueryLanguage: "JSONPath",
+  Type: "Task",
+  Resource: "arn:aws:states:::lambda:invoke",
+  Parameters: {
+    FunctionName: "ComputeArn",
+    Payload: {
+      "input.$": "$.input",
+    },
+  },
+  Catch: [
+    {
+      ErrorEquals: ["States.ALL"],
+      ResultPath: "$.compute_error",
+      Next: "RecoverComputeFailure",
+    },
+  ],
+  Next: "AfterComputeAttempt",
+});
+```
 
 ## Inline catch subflows
 
 Catch handlers can also point to `subflow(...)` targets.
 
 ```ts
+import { lambdaInvoke } from "../dsl/lambda";
+import { pass } from "../dsl/steps";
+import { slot } from "../dsl/jsonata";
+import { subflow } from "../dsl/subflow";
+
 lambdaInvoke("ComputeWithRecovery")
-  .functionName("ComputeFunctionArn")
-  .payload({ computeMany: statesInputSlot() })
+  .functionName("ComputeArn")
+  .payload({ input: slot("example:input", () => $states.input) })
   .catchAll(
     subflow(
       pass("NormalizeComputeError")
@@ -69,16 +93,18 @@ lambdaInvoke("ComputeWithRecovery")
       pass("AuditComputeFailure")
         .content({ audited: true, source: "catch" }),
     ),
-    { resultPath: "$.compute_error" },
-  )
+    {
+      assign: {
+        compute_error: slot("example:err", () => $states.errorOutput),
+      },
+    },
+  );
 ```
 
 When a catch subflow omits explicit `next(...)` or `end()`, it auto-joins back into the next top-level step, using the same auto-wiring rule as inline `choice(...)` targets.
 
 ## Design notes
 
-- `catch(...)` lives only on `task(...)`
-- `pass(...)` and `choice(...)` do not expose `catch(...)`
+- `catch(...)` lives only on `task(...)`, `parallel(...)`, and `map(...)`
 - direct state-name targets are ideal for shared recovery states
 - inline `subflow(...)` targets are ideal for localized recovery paths
-- `resultPath` is attached to the emitted ASL catcher entry

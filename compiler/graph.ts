@@ -28,7 +28,9 @@ function describeChoice(choice: any): string {
 function terminalStateNames(machine: MachineLike): string[] {
   const terminals: string[] = [];
   for (const [name, state] of Object.entries(machine.States)) {
-    if (state?.End === true) terminals.push(name);
+    if (state?.End === true || state?.Type === "Succeed" || state?.Type === "Fail") {
+      terminals.push(name);
+    }
   }
   return terminals;
 }

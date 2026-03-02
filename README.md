@@ -41,18 +41,26 @@ TS DSL ➜ SWC AST ➜ JSONata IR ➜ JSONata string ➜ (future) Rust ➜ YAML
     dsl/
       jsonata.ts          → Authoring helpers + condition combinators
       steps.ts            → Pass state builder
+      task.ts             → Task state builder (+ Lambda / AWS SDK sugars)
       choice.ts           → Choice state builder
+      parallel.ts         → Parallel state builder
+      map.ts              → Map state builder
       subflow.ts          → Inline subflows for choice targets
+      raw-state.ts        → Escape hatch for raw ASL states
       state-machine.ts    → Top-level graph builder + top-level metadata
 
     docs/
       quickstart.md        → Small copy-pasteable examples
       dsl-semantics.md     → Naming and semantics guide
+      query-language.md    → JSONata vs JSONPath (+ state-level overrides)
+      raw-state.md         → Escape hatch for unsupported ASL fields/types
       official-example.md  → Recommended end-to-end business flow
       validation.md        → Semantic validation rules and pipeline
       choice-conditions.md → Condition helper reference for choice(...)
       catch.md             → Task catch handlers and recovery paths
-      task-controls.md     → ResultPath, ResultSelector, timeout, heartbeat
+      task-controls.md     → Arguments, Output, Assign, timeout, heartbeat
+      parallel.md          → Parallel builder guide
+      map.md               → Map builder guide
 
     compiler/
       compile-jsonata.ts        → Slot compiler
@@ -71,14 +79,17 @@ TS DSL ➜ SWC AST ➜ JSONata IR ➜ JSONata string ➜ (future) Rust ➜ YAML
 
 - [Quickstart](docs/quickstart.md)
 - [DSL semantics](docs/dsl-semantics.md)
+- [QueryLanguage (JSONata vs JSONPath)](docs/query-language.md)
+- [Raw states (escape hatch)](docs/raw-state.md)
 - [Official example](docs/official-example.md)
 - [Validation](docs/validation.md)
 - [Choice condition helpers](docs/choice-conditions.md)
 - [Task catch handlers](docs/catch.md)
-- [Task result controls](docs/task-controls.md)
+- [Task data shaping](docs/task-controls.md)
 - [Parallel](docs/parallel.md)
 - [Map](docs/map.md)
 - [AWS SDK tasks](docs/aws-sdk-task.md)
+- [Publishing](docs/publishing.md)
 
 Start here if you want the meaning of each builder and the naming rules:
 
@@ -142,16 +153,34 @@ This emits top-level ASL metadata while keeping `Pass` authoring focused on `Out
 
 # ⚙️ Install
 
-``` bash
+## As an npm dependency
+
+> If the unscoped name is taken in the registry, publish/install under a scope like `@your-org/aslx`.
+
+```bash
+npm i aslx
+```
+
+## From source (this repo)
+
+```bash
 npm install
-npm i @swc/core tsx
 ```
 
 ------------------------------------------------------------------------
 
 # ▶️ Compile
 
-``` bash
+### Using the published CLI
+
+```bash
+npx aslx compile machines/index.ts
+# (long form: npx aslx compile-jsonata machines/index.ts)
+```
+
+### From source
+
+```bash
 npx tsx compiler/compile-jsonata.ts machines/index.ts
 ```
 
@@ -159,9 +188,57 @@ npx tsx compiler/compile-jsonata.ts machines/index.ts
 
 # 👀 Watch mode
 
-``` bash
+### Using the published CLI
+
+```bash
+npx aslx compile machines/index.ts --out build/slots.json --watch
+# (long form: npx aslx compile-jsonata machines/index.ts --out build/slots.json --watch)
+```
+
+### From source
+
+```bash
 npx tsx compiler/compile-jsonata.ts machines/index.ts --out build/slots.json --watch
 ```
+
+------------------------------------------------------------------------
+
+
+# 🛠 CLI
+
+List available commands:
+
+```bash
+npx aslx --help
+```
+
+> Legacy binaries (`aslx-compile-jsonata`, etc.) are still available, but `aslx <command>` is recommended.
+
+Short commands: `compile`, `build`, `validate`, `yml`  (legacy long names still work: `compile-jsonata`, `build-machine`, `validate-machine`, `build-yml`).
+
+# 🧰 Build machines (ASL JSON)
+
+```bash
+# compile slots first
+npx aslx compile machines/index.ts --out build/slots.json
+
+# build machine definitions
+npx aslx build machines/index.ts --slots build/slots.json --out-dir build/machines --graph
+```
+
+------------------------------------------------------------------------
+
+# ✅ Validate machines
+
+```bash
+npx aslx validate machines/index.ts
+```
+
+------------------------------------------------------------------------
+
+# 📝 Publishing
+
+- [Publishing guide](docs/publishing.md)
 
 ------------------------------------------------------------------------
 
@@ -366,9 +443,19 @@ awsSdkTask("GetPackage")
 ```
 
 ------------------------------------------------------------------------
-## Task result controls
+## Task data shaping
 
-The DSL supports `resultSelector(...)`, `resultPath(...)`, `timeoutSeconds(...)`, and `heartbeatSeconds(...)` on task states. See `docs/task-controls.md` for examples and validation rules.
+In JSONata-first workflows, prefer:
+
+- `arguments(...)` → ASL `Arguments`
+- `assign(...)` → ASL `Assign`
+- `output(...)` → ASL `Output`
+
+The DSL also supports operational controls like `timeoutSeconds(...)` and `heartbeatSeconds(...)`.
+
+JSONPath-only fields like `ResultPath` / `ResultSelector` are supported for compatibility, but are validated as JSONPath-only.
+
+See `docs/task-controls.md` for examples and rules.
 
 ------------------------------------------------------------------------
 ## Additional docs

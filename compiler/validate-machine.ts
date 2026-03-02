@@ -1,3 +1,9 @@
+#!/usr/bin/env node
+
+// Enable loading user-provided TypeScript entrypoints via dynamic `import()`.
+import 'tsx';
+
+import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -7,13 +13,75 @@ import { validateStateMachine } from './validate-state-machine';
 
 type CliOptions = {
   input: string;
+  inputWasDefault: boolean;
 };
 
+
+function printHelp() {
+  console.log(`aslx validate
+
+Validate exported stateMachine(...) builders (graph + semantics).
+
+Aliases:
+  validate-machine, check
+
+Usage:
+  aslx validate [entry]
+  aslx validate-machine [entry]
+  aslx-validate-machine [entry]
+
+Defaults:
+  entry  machines/index.ts
+
+Options:
+  -h, --help  Show this help
+
+Preflight checks:
+  - If you omit the entry file, the default is machines/index.ts.
+  - If that file doesn't exist, the CLI will explain what happened and how to fix it.
+
+Examples:
+  aslx validate machines/index.ts
+`);
+}
+
+
 function parseArgs(argv: string[]): CliOptions {
-  const positional = argv.filter((arg) => !arg.startsWith('--'));
-  return {
-    input: positional[0] ?? 'machines/index.ts',
-  };
+  const args = [...argv];
+
+  let input = 'machines/index.ts';
+  let inputWasDefault = true;
+
+  const positional: string[] = [];
+
+  while (args.length > 0) {
+    const current = args.shift();
+    if (!current) break;
+
+    if (current.startsWith('-')) {
+      throw new Error(`Unknown option: ${current}`);
+    }
+
+    positional.push(current);
+  }
+
+  if (positional.length > 0) {
+    if (positional.length > 1) {
+      throw new Error(`Too many positional arguments: ${positional.join(' ')}`);
+    }
+    input = positional[0]!;
+    inputWasDefault = false;
+  }
+
+  return { input, inputWasDefault };
+}
+
+function isFile(p: string): boolean {
+  try {
+    return existsSync(p) && statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 async function loadModule(modulePath: string): Promise<Record<string, unknown>> {
@@ -28,7 +96,27 @@ function collectStateMachineBuilders(mod: Record<string, unknown>): Array<[strin
 }
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    printHelp();
+    return;
+  }
+
+  const options = parseArgs(argv);
+
+  // --- Preflight checks (better UX for the common "aslx validate" flow) ---
+  const resolvedInput = path.resolve(process.cwd(), options.input);
+  if (!isFile(resolvedInput)) {
+    console.error(`Entry file not found: ${options.input}`);
+    if (options.inputWasDefault) {
+      console.error(`This command defaults to "machines/index.ts" if you don't pass an entry file.`);
+      console.error(`Create ${options.input} or pass a different entry file.`);
+    }
+    console.error(`Run: aslx validate --help`);
+    process.exitCode = 1;
+    return;
+  }
+
   const mod = await loadModule(options.input);
   const builders = collectStateMachineBuilders(mod);
 

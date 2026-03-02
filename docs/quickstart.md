@@ -17,6 +17,14 @@ npm i
 npx tsx compiler/compile-jsonata.ts machines/index.ts --out build/slots.json
 ```
 
+If you installed the published package (instead of running from this repo), use:
+
+```bash
+npx aslx compile machines/index.ts --out build/slots.json
+# (long form: npx aslx compile-jsonata machines/index.ts --out build/slots.json)
+# (see all commands: npx aslx --help)
+```
+
 The compiler extracts every `slot("...")` / `toJsonata(..., __slot("..."))` call in your entry file and writes JSONata strings to `build/slots.json`.
 
 ---
@@ -209,6 +217,8 @@ const definition = emitStateMachine(flow.build(), slots);
 
 For deeper semantics, naming rules, and pitfalls, read:
 - [DSL semantics](./dsl-semantics.md)
+- [QueryLanguage (JSONata vs JSONPath)](./query-language.md)
+- [Raw states (escape hatch)](./raw-state.md)
 
 ## Task examples
 
@@ -253,20 +263,7 @@ lambdaInvoke("ComputeMany")
   .end();
 ```
 
-Use `resultPath(...)` when you want to preserve the current state and attach the integration result under a stable field:
-
-```ts
-awsSdkTask("GetPackage")
-  .service("dynamodb")
-  .action("getItem")
-  .arguments({
-    TableName: "${file(resources/index.json):tables.providers}",
-    Key: packageKey(),
-  })
-  .resultPath("$.query_result");
-```
-
-Use `resultSelector(...) + resultPath(...)` when the raw result is noisy and you only want a compact business object downstream:
+Prefer `output(...)` to return a clean business shape downstream:
 
 ```ts
 lambdaInvoke("ComputeMany")
@@ -274,11 +271,13 @@ lambdaInvoke("ComputeMany")
   .payload({
     computeMany: statesInputSlot(),
   })
-  .resultSelector({
-    payload: lambdaPayloadSlot(),
-    source: lambdaExecutedSource(),
-  })
-  .resultPath("$.compute")
+  .assign("compute", slot("quickstart:compute/result", () => $states.result.Payload))
+  .output(
+    slot("quickstart:compute/output", () => ({
+      ok: true,
+      compute: $states.result.Payload,
+    })),
+  )
   .timeoutSeconds(30)
   .heartbeatSeconds(10)
   .retry(lambdaServiceRetry());
@@ -290,7 +289,7 @@ lambdaInvoke("ComputeMany")
 
 For the recommended end-to-end example using `task(...)`, `lambdaInvoke(...)`, `choice(...)`, top-level metadata, and task result controls, see [Official example](./official-example.md).
 
-For the detailed guide on when to choose `resultPath(...)`, `resultSelector(...)`, or `output(...)`, see [Task result controls](./task-controls.md).
+For details on `Arguments` / `Assign` / `Output`, see [Task data shaping](./task-controls.md).
 
 
 ## AWS SDK task sugar
@@ -324,7 +323,11 @@ lambdaInvoke("ComputeWithRecovery")
       pass("AuditComputeFailure")
         .content({ audited: true, source: "catch" }),
     ),
-    { resultPath: "$.compute_error" },
+    {
+      assign: {
+        compute_error: slot("quickstart:compute/error", () => $states.errorOutput),
+      },
+    },
   )
 ```
 
@@ -337,7 +340,7 @@ If the inline recovery subflow omits explicit edges, it auto-joins into the next
 parallel("PrepareMerchantContext")
   .branch(subflow(lambdaInvoke("LoadMerchantProfile").functionName("...").payload({ input: statesInputSlot() })))
   .branch(subflow(lambdaInvoke("LoadRiskProfile").functionName("...").payload({ input: statesInputSlot() })))
-  .resultPath("$.parallel_results")
+  .output(slot("quickstart:parallel/output", () => ({ results: $states.result })))
 ```
 
 
@@ -358,7 +361,7 @@ map("ValidateItems")
       pass("EchoItem").content(slot("quickstart:map/echo", () => ($states as any).input)),
     ),
   )
-  .resultPath("$.validated_items")
+  .output(slot("quickstart:map/output", () => ({ validated_items: $states.result })))
 ```
 
 For a full business example, see `docs/map.md` and `validateModulesMapFlow` in `machines/index.ts`.

@@ -1,5 +1,7 @@
 import type { JsonataSlot } from "./jsonata";
 import type { PassAssignMap, PassAssignValue, PassContent, StepName } from "./steps";
+import type { StateMachineQueryLanguage } from "./state-machine";
+import type { RawStateNode } from "./raw-state";
 import type { PassNode } from "./steps";
 import { PassBuilder } from "./steps";
 import type { SubflowNode } from "./subflow";
@@ -31,6 +33,8 @@ export type MapCatchPolicy = {
 export type MapNode = {
   kind: "map";
   name: string;
+  /** Optional state-level query language override (emits `QueryLanguage` in the state object). */
+  queryLanguage?: StateMachineQueryLanguage;
 
   // Dataset selection
   items?: TaskArgumentValue;   // JSONata (Items)
@@ -133,6 +137,12 @@ function cloneSubflowNode(node: SubflowNode): SubflowNode {
     states: node.states.map((state) => {
       if (state.kind === "pass") return clonePassNode(state);
       if (state.kind === "task") return cloneTaskNode(state);
+      if (state.kind === "raw") {
+        return {
+          ...state,
+          asl: structuredClone((state as RawStateNode).asl),
+        } as RawStateNode;
+      }
       return cloneChoiceNode(state);
     }),
   };
@@ -190,6 +200,11 @@ export class MapBuilder {
 
   comment(value: string): this {
     this.node.comment = value;
+    return this;
+  }
+
+  queryLanguage(value: StateMachineQueryLanguage): this {
+    this.node.queryLanguage = value;
     return this;
   }
 
@@ -335,6 +350,7 @@ export class MapBuilder {
     return {
       kind: "map",
       name: this.node.name,
+      queryLanguage: this.node.queryLanguage,
       items: cloneTaskArgumentValue(this.node.items),
       itemsPath: this.node.itemsPath,
       itemSelector: cloneTaskArgumentValue(this.node.itemSelector),

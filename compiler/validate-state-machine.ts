@@ -1,6 +1,7 @@
 import type { ChoiceNode } from "../dsl/choice";
 import type { ParallelNode } from "../dsl/parallel";
 import type { MapNode } from "../dsl/map";
+import type { RawStateNode } from "../dsl/raw-state";
 import type { PassNode } from "../dsl/steps";
 import type { TaskNode } from "../dsl/task";
 import type { NormalizedStateMachine } from "./normalize-state-machine";
@@ -14,6 +15,7 @@ export type ValidationIssueCode =
   | "DUPLICATE_STATE_NAME"
   | "UNKNOWN_TRANSITION_TARGET"
   | "UNREACHABLE_STATE"
+  | "STATE_QUERY_LANGUAGE_MIX_NOT_ALLOWED"
   | "PASS_CONFLICTING_TRANSITION"
   | "PASS_MISSING_TRANSITION"
   | "TASK_MISSING_RESOURCE"
@@ -24,6 +26,7 @@ export type ValidationIssueCode =
   | "TASK_INVALID_HEARTBEAT_SECONDS"
   | "TASK_HEARTBEAT_EXCEEDS_TIMEOUT"
   | "CHOICE_NO_BRANCHES"
+  | "CHOICE_CONDITION_JSONATA_ONLY"
   | "PARALLEL_NO_BRANCHES"
   | "PARALLEL_CONFLICTING_TRANSITION"
   | "PARALLEL_MISSING_TRANSITION"
@@ -38,6 +41,11 @@ export type ValidationIssueCode =
   | "MAP_INVALID_MAX_CONCURRENCY"
   | "MAP_PROCESSOR_EMPTY"
   | "MAP_PROCESSOR_INVALID"
+  | "RAW_MISSING_TYPE"
+  | "RAW_CONFLICTING_TRANSITION"
+  | "RAW_MISSING_TRANSITION"
+  | "RAW_TERMINAL_HAS_TRANSITION"
+  | "RAW_CHOICE_INVALID"
   | "PASS_CONTENT_JSONATA_ONLY"
   | "TASK_RESULT_SELECTOR_JSONPATH_ONLY"
   | "TASK_RESULT_PATH_JSONPATH_ONLY"
@@ -107,6 +115,29 @@ function visitReachable(
     return;
   }
 
+  if (state.kind === "raw") {
+    const raw = state.asl as any;
+    const type = typeof raw?.Type === "string" ? raw.Type : undefined;
+
+    if (type === "Choice") {
+      if (Array.isArray(raw?.Choices)) {
+        for (const choice of raw.Choices) {
+          if (choice?.Next) visitReachable(String(choice.Next), machine, seen);
+        }
+      }
+      if (raw?.Default) visitReachable(String(raw.Default), machine, seen);
+      return;
+    }
+
+    if (raw?.Next) visitReachable(String(raw.Next), machine, seen);
+    if (Array.isArray(raw?.Catch)) {
+      for (const catcher of raw.Catch) {
+        if (catcher?.Next) visitReachable(String(catcher.Next), machine, seen);
+      }
+    }
+    return;
+  }
+
   for (const choice of state.choices) {
     visitReachable(choice.next, machine, seen);
   }
@@ -114,6 +145,36 @@ function visitReachable(
   if (state.otherwise) {
     visitReachable(state.otherwise, machine, seen);
   }
+}
+
+function getDeclaredStateQueryLanguage(node: PassNode | TaskNode | ChoiceNode | ParallelNode | MapNode | RawStateNode): "JSONata" | "JSONPath" | undefined {
+  if (node.kind === "raw") {
+    if (node.queryLanguage) return node.queryLanguage;
+    const raw = node.asl as any;
+    return raw?.QueryLanguage === "JSONata" || raw?.QueryLanguage === "JSONPath" ? raw.QueryLanguage : undefined;
+  }
+  return (node as any).queryLanguage as any;
+}
+
+function resolveEffectiveQueryLanguage(
+  machineQueryLanguage: "JSONata" | "JSONPath",
+  node: PassNode | TaskNode | ChoiceNode | ParallelNode | MapNode | RawStateNode,
+  issues: ValidationIssue[],
+): "JSONata" | "JSONPath" {
+  const declared = getDeclaredStateQueryLanguage(node);
+
+  // AWS restriction: cannot mix JSONPath states inside a JSONata state machine.
+  if (machineQueryLanguage === "JSONata" && declared === "JSONPath") {
+    issues.push({
+      severity: "error",
+      code: "STATE_QUERY_LANGUAGE_MIX_NOT_ALLOWED",
+      stateName: node.name,
+      path: `States.${node.name}.QueryLanguage`,
+      message: `State ${node.name} declares QueryLanguage=JSONPath but the state machine QueryLanguage is JSONata. AWS Step Functions does not allow mixing JSONPath states inside a JSONata state machine. Set the top-level QueryLanguage to JSONPath instead, and opt-in states to JSONata one-by-one.`,
+    });
+  }
+
+  return declared ?? machineQueryLanguage;
 }
 
 function validatePassState(
@@ -314,9 +375,80 @@ function validateTaskState(
   }
 }
 
-function validateChoiceState(node: ChoiceNode, issues: ValidationIssue[]): void {
+function validateChoiceState(node: ChoiceNode, issues: ValidationIssue[], queryLanguage: "JSONata" | "JSONPath"): void {
   if (node.choices.length === 0) {
     issues.push({ severity: "error", code: "CHOICE_NO_BRANCHES", stateName: node.name, message: `Choice state ${node.name} must declare at least one branch.` });
+  }
+
+  if (queryLanguage === "JSONPath") {
+    issues.push({
+      severity: "error",
+      code: "CHOICE_CONDITION_JSONATA_ONLY",
+      stateName: node.name,
+      path: `States.${node.name}.Choices[*].Condition`,
+      message: `Choice state ${node.name} is authored using JSONata conditions (Condition), which requires QueryLanguage=JSONata. For JSONPath choices, use rawState(...) and author Variable/Operators explicitly.`,
+    });
+  }
+}
+
+function validateRawState(node: RawStateNode, issues: ValidationIssue[]): void {
+  const raw = node.asl as any;
+
+  const type = typeof raw?.Type === "string" ? raw.Type : undefined;
+  if (!type) {
+    issues.push({
+      severity: "error",
+      code: "RAW_MISSING_TYPE",
+      stateName: node.name,
+      path: `States.${node.name}.Type`,
+      message: `Raw state ${node.name} must include a string Type field.`,
+    });
+    return;
+  }
+
+  const hasNext = raw?.Next !== undefined;
+  const hasEnd = raw?.End === true;
+
+  if (hasNext && hasEnd) {
+    issues.push({
+      severity: "error",
+      code: "RAW_CONFLICTING_TRANSITION",
+      stateName: node.name,
+      message: `Raw state ${node.name} cannot declare both Next and End.`,
+    });
+  }
+
+  const isTerminalType = type === "Succeed" || type === "Fail";
+  if (isTerminalType && (hasNext || hasEnd)) {
+    issues.push({
+      severity: "error",
+      code: "RAW_TERMINAL_HAS_TRANSITION",
+      stateName: node.name,
+      message: `Raw state ${node.name} is a terminal state (Type=${type}) and must not declare Next/End.`,
+    });
+  }
+
+  if (type === "Choice") {
+    if (!Array.isArray(raw?.Choices) || raw.Choices.length === 0) {
+      issues.push({
+        severity: "error",
+        code: "RAW_CHOICE_INVALID",
+        stateName: node.name,
+        path: `States.${node.name}.Choices`,
+        message: `Raw Choice state ${node.name} must declare a non-empty Choices array.`,
+      });
+    }
+    return;
+  }
+
+  // Most non-terminal states require either Next or End.
+  if (!isTerminalType && !hasNext && !hasEnd) {
+    issues.push({
+      severity: "error",
+      code: "RAW_MISSING_TRANSITION",
+      stateName: node.name,
+      message: `Raw state ${node.name} must declare either Next or End (or be a terminal Type like Succeed/Fail).`,
+    });
   }
 }
 
@@ -326,7 +458,7 @@ function materializeBranchMachine(node: ParallelNode, index: number, queryLangua
     throw new Error(`Parallel branch ${index} is empty.`);
   }
 
-  const states = structuredClone(branch.states) as Array<PassNode | TaskNode | ChoiceNode>;
+  const states = structuredClone(branch.states) as Array<PassNode | TaskNode | ChoiceNode | RawStateNode>;
 
   for (let i = 0; i < states.length; i += 1) {
     const current = states[i]!;
@@ -337,6 +469,28 @@ function materializeBranchMachine(node: ParallelNode, index: number, queryLangua
       if (!current.next && current.end !== true) {
         if (fallbackNext) current.next = fallbackNext;
         else current.end = true;
+      }
+      continue;
+    }
+
+    if (current.kind === "raw") {
+      const raw = current.asl as any;
+      const type = typeof raw?.Type === "string" ? raw.Type : undefined;
+      const hasExplicit = type === "Succeed" || type === "Fail"
+        ? true
+        : type === "Choice"
+          ? (Boolean(raw?.Default) || (Array.isArray(raw?.Choices) && raw.Choices.length > 0))
+          : (raw?.Next !== undefined || raw?.End === true);
+
+      if (!hasExplicit) {
+        if (type === "Choice") {
+          if (fallbackNext) raw.Default = fallbackNext;
+        } else if (type === "Succeed" || type === "Fail") {
+          // terminal types cannot be auto-wired
+        } else {
+          if (fallbackNext) raw.Next = fallbackNext;
+          else raw.End = true;
+        }
       }
       continue;
     }
@@ -354,7 +508,7 @@ function materializeBranchMachine(node: ParallelNode, index: number, queryLangua
   });
 }
 
-function validateParallelBranches(node: ParallelNode, issues: ValidationIssue[], queryLanguage: "JSONata" | "JSONPath"): void {
+function validateParallelBranches(node: ParallelNode, issues: ValidationIssue[], machineQueryLanguage: "JSONata" | "JSONPath"): void {
   node.branches.forEach((branch, index) => {
     if (branch.states.length === 0) {
       issues.push({ severity: "error", code: "PARALLEL_BRANCH_EMPTY", stateName: node.name, path: `States.${node.name}.Branches[${index}]`, message: `Parallel state ${node.name} contains an empty branch at index ${index}.` });
@@ -362,7 +516,7 @@ function validateParallelBranches(node: ParallelNode, issues: ValidationIssue[],
     }
 
     try {
-      validateStateMachine(materializeBranchMachine(node, index, queryLanguage));
+      validateStateMachine(materializeBranchMachine(node, index, machineQueryLanguage));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       issues.push({ severity: "error", code: "PARALLEL_BRANCH_INVALID", stateName: node.name, path: `States.${node.name}.Branches[${index}]`, message: `Parallel branch ${index} is invalid: ${message}` });
@@ -373,7 +527,8 @@ function validateParallelBranches(node: ParallelNode, issues: ValidationIssue[],
 function validateParallelState(
   node: ParallelNode,
   issues: ValidationIssue[],
-  queryLanguage: "JSONata" | "JSONPath",
+  stateQueryLanguage: "JSONata" | "JSONPath",
+  machineQueryLanguage: "JSONata" | "JSONPath",
 ): void {
   if (node.branches.length === 0) {
     issues.push({
@@ -403,7 +558,7 @@ function validateParallelState(
   }
 
   // QueryLanguage field compatibility
-  if (queryLanguage === "JSONata") {
+  if (stateQueryLanguage === "JSONata") {
     if (node.resultSelector !== undefined) {
       issues.push({
         severity: "error",
@@ -474,7 +629,7 @@ function validateParallelState(
 
   // JSONPath ResultPath format validation
   if (
-    queryLanguage === "JSONPath"
+    stateQueryLanguage === "JSONPath"
     && node.resultPath !== undefined
     && (node.resultPath.trim() === "" || !isLikelyJsonPath(node.resultPath))
   ) {
@@ -487,7 +642,8 @@ function validateParallelState(
     });
   }
 
-  validateParallelBranches(node, issues, queryLanguage);
+  // Branches inherit the *state machine* query language (not the Parallel state's QueryLanguage).
+  validateParallelBranches(node, issues, machineQueryLanguage);
 }
 
 function materializeMapProcessorMachine(node: MapNode, queryLanguage: "JSONata" | "JSONPath"): NormalizedStateMachine {
@@ -496,7 +652,7 @@ function materializeMapProcessorMachine(node: MapNode, queryLanguage: "JSONata" 
     throw new Error(`Map itemProcessor is empty.`);
   }
 
-  const states = structuredClone(processor.states) as Array<PassNode | TaskNode | ChoiceNode>;
+  const states = structuredClone(processor.states) as Array<PassNode | TaskNode | ChoiceNode | RawStateNode>;
 
   for (let i = 0; i < states.length; i += 1) {
     const current = states[i]!;
@@ -507,6 +663,28 @@ function materializeMapProcessorMachine(node: MapNode, queryLanguage: "JSONata" 
       if (!current.next && current.end !== true) {
         if (fallbackNext) current.next = fallbackNext;
         else current.end = true;
+      }
+      continue;
+    }
+
+    if (current.kind === "raw") {
+      const raw = current.asl as any;
+      const type = typeof raw?.Type === "string" ? raw.Type : undefined;
+      const hasExplicit = type === "Succeed" || type === "Fail"
+        ? true
+        : type === "Choice"
+          ? (Boolean(raw?.Default) || (Array.isArray(raw?.Choices) && raw.Choices.length > 0))
+          : (raw?.Next !== undefined || raw?.End === true);
+
+      if (!hasExplicit) {
+        if (type === "Choice") {
+          if (fallbackNext) raw.Default = fallbackNext;
+        } else if (type === "Succeed" || type === "Fail") {
+          // terminal types cannot be auto-wired
+        } else {
+          if (fallbackNext) raw.Next = fallbackNext;
+          else raw.End = true;
+        }
       }
       continue;
     }
@@ -527,7 +705,8 @@ function materializeMapProcessorMachine(node: MapNode, queryLanguage: "JSONata" 
 function validateMapState(
   node: MapNode,
   issues: ValidationIssue[],
-  queryLanguage: "JSONata" | "JSONPath",
+  stateQueryLanguage: "JSONata" | "JSONPath",
+  machineQueryLanguage: "JSONata" | "JSONPath",
 ): void {
   // Dataset selection compatibility
   if (node.items !== undefined && node.itemsPath !== undefined) {
@@ -537,7 +716,7 @@ function validateMapState(
       stateName: node.name,
       message: `Map state ${node.name} cannot declare both items and itemsPath.`,
     });
-  } else if (queryLanguage === "JSONata") {
+  } else if (stateQueryLanguage === "JSONata") {
     if (node.itemsPath !== undefined) {
       issues.push({
         severity: "error",
@@ -596,7 +775,8 @@ function validateMapState(
     });
   } else {
     try {
-      validateStateMachine(materializeMapProcessorMachine(node, queryLanguage));
+      // ItemProcessor inherits the *state machine* query language (not the Map state's QueryLanguage).
+      validateStateMachine(materializeMapProcessorMachine(node, machineQueryLanguage));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       issues.push({
@@ -628,7 +808,7 @@ function validateMapState(
   }
 
   // QueryLanguage field compatibility
-  if (queryLanguage === "JSONata") {
+  if (stateQueryLanguage === "JSONata") {
     if (node.resultSelector !== undefined) {
       issues.push({
         severity: "error",
@@ -689,7 +869,7 @@ function validateMapState(
 
   // JSONPath ResultPath format validation
   if (
-    queryLanguage === "JSONPath"
+    stateQueryLanguage === "JSONPath"
     && node.resultPath !== undefined
     && (node.resultPath.trim() === "" || !isLikelyJsonPath(node.resultPath))
   ) {
@@ -718,7 +898,7 @@ function validateMapState(
 export function collectValidationIssues(machine: NormalizedStateMachine): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
-  const queryLanguage: "JSONata" | "JSONPath" = machine.queryLanguage ?? "JSONata";
+  const machineQueryLanguage: "JSONata" | "JSONPath" = machine.queryLanguage ?? "JSONata";
 
   if (machine.states.length === 0) {
     issues.push({ severity: "error", code: "MACHINE_NO_STATES", message: `State machine ${machine.name} must contain at least one state.` });
@@ -734,11 +914,14 @@ export function collectValidationIssues(machine: NormalizedStateMachine): Valida
 
     seenNames.add(state.name);
 
-    if (state.kind === "pass") validatePassState(state, issues, queryLanguage);
-    else if (state.kind === "task") validateTaskState(state, issues, queryLanguage);
-    else if (state.kind === "choice") validateChoiceState(state, issues);
-    else if (state.kind === "parallel") validateParallelState(state, issues, queryLanguage);
-    else validateMapState(state, issues, queryLanguage);
+    const stateQueryLanguage = resolveEffectiveQueryLanguage(machineQueryLanguage, state as any, issues);
+
+    if (state.kind === "pass") validatePassState(state, issues, stateQueryLanguage);
+    else if (state.kind === "task") validateTaskState(state, issues, stateQueryLanguage);
+    else if (state.kind === "choice") validateChoiceState(state, issues, stateQueryLanguage);
+    else if (state.kind === "parallel") validateParallelState(state, issues, stateQueryLanguage, machineQueryLanguage);
+    else if (state.kind === "map") validateMapState(state, issues, stateQueryLanguage, machineQueryLanguage);
+    else validateRawState(state, issues);
   }
 
   if (!machine.stateMap[machine.startAt]) {

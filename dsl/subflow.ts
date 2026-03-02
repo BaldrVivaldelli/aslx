@@ -1,12 +1,18 @@
 import type { ChoiceNode } from "./choice";
 import { ChoiceBuilder } from "./choice";
+import type { RawStateNode } from "./raw-state";
+import { RawStateBuilder } from "./raw-state";
 import type { PassNode } from "./steps";
 import { PassBuilder } from "./steps";
 import type { TaskNode } from "./task";
 import { TaskBuilder } from "./task";
 
-export type SubflowStepNode = PassNode | TaskNode | ChoiceNode;
-export type SubflowStepLike = PassBuilder | PassNode | TaskBuilder | TaskNode | ChoiceBuilder | ChoiceNode;
+export type SubflowStepNode = PassNode | TaskNode | ChoiceNode | RawStateNode;
+export type SubflowStepLike =
+  | PassBuilder | PassNode
+  | TaskBuilder | TaskNode
+  | ChoiceBuilder | ChoiceNode
+  | RawStateBuilder | RawStateNode;
 
 export type SubflowNode = {
   kind: "subflow";
@@ -23,6 +29,10 @@ function isTaskBuilder(step: SubflowStepLike): step is TaskBuilder {
 
 function isChoiceBuilder(step: SubflowStepLike): step is ChoiceBuilder {
   return step instanceof ChoiceBuilder;
+}
+
+function isRawStateBuilder(step: SubflowStepLike): step is RawStateBuilder {
+  return step instanceof RawStateBuilder;
 }
 
 function clonePassNode(node: PassNode): PassNode {
@@ -79,16 +89,25 @@ function cloneChoiceNode(node: ChoiceNode): ChoiceNode {
   };
 }
 
+function cloneRawNode(node: RawStateNode): RawStateNode {
+  return {
+    ...node,
+    asl: structuredClone(node.asl),
+  };
+}
+
 function cloneStepNode(node: SubflowStepNode): SubflowStepNode {
   if (node.kind === "pass") return clonePassNode(node);
   if (node.kind === "task") return cloneTaskNode(node);
-  return cloneChoiceNode(node);
+  if (node.kind === "choice") return cloneChoiceNode(node);
+  return cloneRawNode(node);
 }
 
 function materializeStep(step: SubflowStepLike): SubflowStepNode {
   if (isPassBuilder(step)) return step.build();
   if (isTaskBuilder(step)) return step.build();
   if (isChoiceBuilder(step)) return step.build();
+  if (isRawStateBuilder(step)) return step.build();
   return cloneStepNode(step);
 }
 

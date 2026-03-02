@@ -36,6 +36,35 @@ function getOutgoingTransitions(node: NormalizedStateNode): NormalizedTransition
     ];
   }
 
+  if (node.kind === "raw") {
+    const state = node.asl as any;
+    const type = typeof state?.Type === "string" ? state.Type : undefined;
+
+    if (type === "Choice") {
+      const choices: NormalizedTransition[] = [];
+      if (Array.isArray(state?.Choices)) {
+        for (const choice of state.Choices) {
+          if (choice?.Next) {
+            choices.push({ from: node.name, to: String(choice.Next), kind: "choice" });
+          }
+        }
+      }
+      if (state?.Default) {
+        choices.push({ from: node.name, to: String(state.Default), kind: "default" });
+      }
+      return choices;
+    }
+
+    const out: NormalizedTransition[] = [];
+    if (state?.Next) out.push({ from: node.name, to: String(state.Next), kind: "next" });
+    if (Array.isArray(state?.Catch)) {
+      for (const catcher of state.Catch) {
+        if (catcher?.Next) out.push({ from: node.name, to: String(catcher.Next), kind: "catch" });
+      }
+    }
+    return out;
+  }
+
   return [
     ...node.choices.map((choice) => ({
       from: node.name,

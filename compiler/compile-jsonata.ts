@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 // compiler/compile-jsonata.ts
 // ESM + SWC: TypeScript "normal" -> JSONata embedded
 // Features:
@@ -999,6 +1001,39 @@ function printExpr(e: ExprIR): string {
 }
 
 /** ---------------- CLI ---------------- */
+
+function printHelp() {
+    console.log(`aslx compile
+
+Compile TypeScript expressions into JSONata slot registry.
+
+Aliases:
+  compile-jsonata, slots
+
+Usage:
+  aslx compile [entry] [--out <file>] [--watch]
+  aslx compile-jsonata [entry] [--out <file>] [--watch]
+  aslx-compile-jsonata [entry] [--out <file>] [--watch]
+
+Defaults:
+  entry  machines/index.ts
+
+Behavior:
+  - If --out is omitted, compiled slots are printed to stdout.
+  - If --out is provided, this also writes a slot origin map next to it:
+      <out>.map.json
+
+Options:
+  --out <file>  Write slots registry JSON to this file.
+  --watch       Recompile on .ts/.tsx changes under the current working directory.
+  -h, --help    Show this help
+
+Examples:
+  aslx compile machines/index.ts --out build/slots.json
+  aslx compile machines/index.ts --watch
+`);
+}
+
 function parseArgs(argv: string[]) {
     const args = argv.slice(2);
     let input = "machines/index.ts";
@@ -1111,6 +1146,11 @@ function compileOnce(entryAbsFile: string, outFile: string | null) {
     const mapFile = outFile.endsWith(".json") ? outFile.replace(/\.json$/, ".map.json") : `${outFile}.map.json`;
     fs.writeFileSync(mapFile, JSON.stringify(outMap, null, 2) + "\n", "utf8");
     console.log(`✅ wrote slot origin map to ${mapFile}`);
+}
+
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    printHelp();
+    process.exit(0);
 }
 
 const { input, outFile, watch } = parseArgs(process.argv);

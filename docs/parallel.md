@@ -4,32 +4,44 @@
 
 Use it when you need **fixed concurrent branches** that should all complete before the flow continues.
 
-## Recommended shape
+## Recommended shape (JSONata)
 
 - keep each branch explicit with `branch(subflow(...))`
-- use `resultPath(...)` to store branch results
+- use `Output` to shape the state output (and/or `Assign` to store variables)
 - use `catch(...)` / `catchAll(...)` for recovery
 - continue the top-level flow with `then(...)`
+
+> In JSONata, the raw result of a `Parallel` state is available as `$states.result`.
 
 ## Example
 
 ```ts
+import { parallel } from "../dsl/parallel";
+import { subflow } from "../dsl/subflow";
+import { lambdaInvoke } from "../dsl/lambda";
+import { slot } from "../dsl/jsonata";
+
 parallel("PrepareMerchantContext")
   .branch(
     subflow(
       lambdaInvoke("LoadMerchantProfile")
         .functionName("LoadMerchantProfileArn")
-        .payload({ input: statesInputSlot() }),
+        .payload({ input: slot("example:input", () => $states.input) }),
     ),
   )
   .branch(
     subflow(
       lambdaInvoke("LoadRiskProfile")
         .functionName("LoadRiskProfileArn")
-        .payload({ input: statesInputSlot() }),
+        .payload({ input: slot("example:input", () => $states.input) }),
     ),
   )
-  .resultPath("$.parallel_results")
+  .output(
+    slot("example:parallel/output", () => ({
+      // Branch results array
+      branches: $states.result,
+    })),
+  );
 ```
 
 ## When to use `parallel(...)`
@@ -44,4 +56,4 @@ Do not use it for:
 
 - simple sequential composition → use `subflow(...)`
 - branching decisions → use `choice(...)`
-- dynamic collection processing → design `map(...)` later or encapsulate behind a Lambda
+- dynamic collection processing → use `map(...)`

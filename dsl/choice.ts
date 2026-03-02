@@ -1,5 +1,7 @@
 import type { JsonataSlot } from "./jsonata";
 import { not } from "./jsonata";
+import type { StateMachineQueryLanguage } from "./state-machine";
+import type { RawStateNode } from "./raw-state";
 import type { PassNode } from "./steps";
 import { PassBuilder } from "./steps";
 import type { SubflowNode } from "./subflow";
@@ -21,6 +23,8 @@ export type ChoiceRule = {
 export type ChoiceNode = {
   kind: "choice";
   name: string;
+  /** Optional state-level query language override (emits `QueryLanguage` in the state object). */
+  queryLanguage?: StateMachineQueryLanguage;
   choices: ChoiceRule[];
   comment?: string;
   otherwise?: StepName;
@@ -79,6 +83,12 @@ function cloneSubflowNode(node: SubflowNode): SubflowNode {
     states: node.states.map((state) => {
       if (state.kind === "pass") return clonePassNode(state);
       if (state.kind === "task") return cloneTaskNode(state);
+      if (state.kind === "raw") {
+        return {
+          ...state,
+          asl: structuredClone((state as RawStateNode).asl),
+        } as RawStateNode;
+      }
       return cloneChoiceNode(state);
     }),
   };
@@ -148,6 +158,11 @@ export class ChoiceBuilder {
   when(condition: JsonataSlot, target: SubflowTarget): this {
     const materialized = materializeSubflowTarget(target);
     this.node.choices.push({ condition, ...materialized });
+    return this;
+  }
+
+  queryLanguage(value: StateMachineQueryLanguage): this {
+    this.node.queryLanguage = value;
     return this;
   }
 

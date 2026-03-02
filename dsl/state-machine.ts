@@ -6,6 +6,8 @@ import type { ParallelNode } from "./parallel";
 import { ParallelBuilder } from "./parallel";
 import type { MapNode } from "./map";
 import { MapBuilder } from "./map";
+import type { RawStateNode } from "./raw-state";
+import { RawStateBuilder } from "./raw-state";
 import type { PassNode } from "./steps";
 import { PassBuilder } from "./steps";
 import type { SubflowNode } from "./subflow";
@@ -14,8 +16,14 @@ import { TaskBuilder } from "./task";
 
 export type StateMachineQueryLanguage = "JSONata" | "JSONPath";
 
-export type StepNode = PassNode | TaskNode | ChoiceNode | ParallelNode | MapNode;
-export type StepLike = PassBuilder | PassNode | TaskBuilder | TaskNode | ChoiceBuilder | ChoiceNode | ParallelBuilder | ParallelNode | MapBuilder | MapNode;
+export type StepNode = PassNode | TaskNode | ChoiceNode | ParallelNode | MapNode | RawStateNode;
+export type StepLike =
+  | PassBuilder | PassNode
+  | TaskBuilder | TaskNode
+  | ChoiceBuilder | ChoiceNode
+  | ParallelBuilder | ParallelNode
+  | MapBuilder | MapNode
+  | RawStateBuilder | RawStateNode;
 
 export type StateMachineNode = {
   kind: "stateMachine";
@@ -43,6 +51,10 @@ function isParallelBuilder(step: StepLike): step is ParallelBuilder {
 
 function isMapBuilder(step: StepLike): step is MapBuilder {
   return step instanceof MapBuilder;
+}
+
+function isRawStateBuilder(step: StepLike): step is RawStateBuilder {
+  return step instanceof RawStateBuilder;
 }
 
 function clonePassNode(node: PassNode): PassNode {
@@ -73,6 +85,7 @@ function cloneSubflowNode(node: SubflowNode): SubflowNode {
     states: node.states.map((state) => {
       if (state.kind === "pass") return clonePassNode(state);
       if (state.kind === "task") return cloneTaskNode(state);
+      if (state.kind === "raw") return cloneRawNode(state);
       return cloneChoiceNode(state);
     }),
   };
@@ -142,12 +155,20 @@ function cloneMapNode(node: MapNode): MapNode {
   };
 }
 
+function cloneRawNode(node: RawStateNode): RawStateNode {
+  return {
+    ...node,
+    asl: structuredClone(node.asl),
+  };
+}
+
 function materializeStep(step: StepLike): StepNode {
   if (isPassBuilder(step)) return step.build();
   if (isTaskBuilder(step)) return step.build();
   if (isChoiceBuilder(step)) return step.build();
   if (isParallelBuilder(step)) return step.build();
   if (isMapBuilder(step)) return step.build();
+  if (isRawStateBuilder(step)) return step.build();
   return cloneNode(step);
 }
 
@@ -156,11 +177,27 @@ function cloneNode(node: StepNode): StepNode {
   if (node.kind === "task") return cloneTaskNode(node);
   if (node.kind === "choice") return cloneChoiceNode(node);
   if (node.kind === "parallel") return cloneParallelNode(node);
-  return cloneMapNode(node);
+  if (node.kind === "map") return cloneMapNode(node);
+  return cloneRawNode(node);
 }
 
 function hasExplicitTransition(node: PassNode | TaskNode | ParallelNode | MapNode): boolean {
   return node.next !== undefined || node.end === true;
+}
+
+function rawStateType(node: RawStateNode): string | undefined {
+  const type = (node.asl as any)?.Type;
+  return typeof type === "string" ? type : undefined;
+}
+
+function rawHasExplicitTransition(node: RawStateNode): boolean {
+  const state = node.asl as any;
+  const type = rawStateType(node);
+  if (type === "Succeed" || type === "Fail") return true;
+  if (type === "Choice") {
+    return Boolean(state?.Default) || (Array.isArray(state?.Choices) && state.Choices.length > 0);
+  }
+  return state?.Next !== undefined || state?.End === true;
 }
 
 function pushUniqueState(target: StepNode[], seenNames: Set<string>, state: StepNode): void {
@@ -200,6 +237,25 @@ function expandSequence(
         }
       }
 
+      continue;
+    }
+
+    if (current.kind === "raw") {
+      const type = rawStateType(current);
+      const state = current.asl as any;
+
+      if (!rawHasExplicitTransition(current)) {
+        if (type === "Choice") {
+          if (fallbackNext) state.Default = fallbackNext;
+        } else if (type === "Succeed" || type === "Fail") {
+          // terminal types cannot be auto-wired
+        } else {
+          if (fallbackNext) state.Next = fallbackNext;
+          else state.End = true;
+        }
+      }
+
+      pushUniqueState(expanded, seenNames, current);
       continue;
     }
 

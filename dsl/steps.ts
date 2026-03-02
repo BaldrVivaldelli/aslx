@@ -1,4 +1,5 @@
 import type { JsonataSlot } from "./jsonata";
+import type { StateMachineQueryLanguage } from "./state-machine";
 
 export type StepName = string;
 export type StepResultPath = string;
@@ -17,6 +18,8 @@ export type PassAssignMap = Record<string, PassAssignValue>;
 export type PassNode = {
   kind: "pass";
   name: string;
+  /** Optional state-level query language override (emits `QueryLanguage` in the state object). */
+  queryLanguage?: StateMachineQueryLanguage;
   content?: PassContent;
   assign?: PassAssignMap;
   comment?: string;
@@ -36,6 +39,11 @@ export class PassBuilder {
 
   content(content: PassContent): this {
     this.node.content = content;
+    return this;
+  }
+
+  queryLanguage(value: StateMachineQueryLanguage): this {
+    this.node.queryLanguage = value;
     return this;
   }
 

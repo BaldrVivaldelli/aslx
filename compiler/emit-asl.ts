@@ -4,6 +4,7 @@ import { isJsonataSlot, parseSyntheticExpressionSlotId } from "../dsl/jsonata";
 import type { ParallelCatchPolicy, ParallelNode } from "../dsl/parallel";
 import type { MapCatchPolicy, MapNode } from "../dsl/map";
 import type { StateMachineNode, StateMachineQueryLanguage, StepNode } from "../dsl/state-machine";
+import type { RawStateNode } from "../dsl/raw-state";
 import type { PassAssignMap, PassContent, PassNode } from "../dsl/steps";
 import type { CatchPolicy, TaskArgumentValue, TaskNode } from "../dsl/task";
 
@@ -12,6 +13,7 @@ export type SlotRegistry = Record<string, string>;
 export type AslPassState = {
   Type: "Pass";
   Comment?: string;
+  QueryLanguage?: StateMachineQueryLanguage;
   Output?: unknown;
   Assign?: Record<string, unknown>;
   Next?: string;
@@ -29,6 +31,7 @@ export type AslTaskCatch = {
 export type AslTaskState = {
   Type: "Task";
   Comment?: string;
+  QueryLanguage?: StateMachineQueryLanguage;
   Resource: string;
   Arguments?: unknown;
   ResultSelector?: unknown;
@@ -51,6 +54,7 @@ export type AslChoiceBranch = {
 export type AslChoiceState = {
   Type: "Choice";
   Comment?: string;
+  QueryLanguage?: StateMachineQueryLanguage;
   Choices: AslChoiceBranch[];
   Default?: string;
 };
@@ -63,6 +67,7 @@ export type AslBranchDefinition = {
 export type AslParallelState = {
   Type: "Parallel";
   Comment?: string;
+  QueryLanguage?: StateMachineQueryLanguage;
   Branches: AslBranchDefinition[];
   Arguments?: unknown;
   Output?: unknown;
@@ -84,6 +89,7 @@ export type AslItemProcessorDefinition = {
 export type AslMapState = {
   Type: "Map";
   Comment?: string;
+  QueryLanguage?: StateMachineQueryLanguage;
   Items?: unknown;
   ItemsPath?: string;
   ItemSelector?: unknown;
@@ -99,7 +105,16 @@ export type AslMapState = {
   End?: true;
 };
 
-export type AslState = AslPassState | AslTaskState | AslChoiceState | AslParallelState | AslMapState;
+export type AslRawState = {
+  Type: string;
+  Comment?: string;
+  QueryLanguage?: StateMachineQueryLanguage;
+  Next?: string;
+  End?: true;
+  [key: string]: unknown;
+};
+
+export type AslState = AslPassState | AslTaskState | AslChoiceState | AslParallelState | AslMapState | AslRawState;
 export type AslStates = Record<string, AslState>;
 
 export type AslStateMachineDefinition = {
@@ -109,7 +124,27 @@ export type AslStateMachineDefinition = {
   States: AslStates;
 };
 
-type BranchStateNode = PassNode | TaskNode | ChoiceNode;
+type BranchStateNode = PassNode | TaskNode | ChoiceNode | RawStateNode;
+
+function resolveUnknownValue(value: unknown, slots: SlotRegistry): unknown {
+  if (isJsonataSlot(value as any)) {
+    return resolveSlot(value as JsonataSlot, slots);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveUnknownValue(item, slots));
+  }
+
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = resolveUnknownValue(child, slots);
+    }
+    return out;
+  }
+
+  return value;
+}
 
 function renderJsonataTemplate(expr: string): string {
   return `{% ${expr} %}`;
@@ -235,6 +270,21 @@ function hasExplicitTransition(node: PassNode | TaskNode): boolean {
   return node.next !== undefined || node.end === true;
 }
 
+function rawStateType(node: RawStateNode): string | undefined {
+  const type = (node.asl as any)?.Type;
+  return typeof type === "string" ? type : undefined;
+}
+
+function rawHasExplicitTransition(node: RawStateNode): boolean {
+  const state = node.asl as any;
+  const type = rawStateType(node);
+  if (type === "Succeed" || type === "Fail") return true;
+  if (type === "Choice") {
+    return Boolean(state?.Default) || (Array.isArray(state?.Choices) && state.Choices.length > 0);
+  }
+  return state?.Next !== undefined || state?.End === true;
+}
+
 function expandBranchSequence(
   sequence: BranchStateNode[],
   expanded: BranchStateNode[],
@@ -266,6 +316,29 @@ function expandBranchSequence(
           expandBranchSequence(policy.inlineTarget.states as BranchStateNode[], expanded, seenNames, fallbackNext);
         }
       }
+      continue;
+    }
+
+    if (current.kind === "raw") {
+      const type = rawStateType(current);
+      const state = current.asl as any;
+
+      if (!rawHasExplicitTransition(current)) {
+        if (type === "Choice") {
+          if (fallbackNext) state.Default = fallbackNext;
+        } else if (type === "Succeed" || type === "Fail") {
+          // terminal types cannot be auto-wired
+        } else {
+          if (fallbackNext) state.Next = fallbackNext;
+          else state.End = true;
+        }
+      }
+
+      if (seenNames.has(current.name)) {
+        throw new Error(`Duplicate branch state name detected: ${current.name}`);
+      }
+      seenNames.add(current.name);
+      expanded.push(current);
       continue;
     }
 
@@ -312,6 +385,7 @@ export function emitPassState(node: PassNode, slots: SlotRegistry): AslPassState
   const state: AslPassState = { Type: "Pass" };
 
   if (node.comment) state.Comment = node.comment;
+  if (node.queryLanguage) state.QueryLanguage = node.queryLanguage;
   if (node.content !== undefined) state.Output = resolveContentValue(node.content, slots);
 
   const assign = resolveAssign(node.assign, slots);
@@ -326,6 +400,7 @@ export function emitPassState(node: PassNode, slots: SlotRegistry): AslPassState
 export function emitTaskState(node: TaskNode, slots: SlotRegistry): AslTaskState {
   const state: AslTaskState = { Type: "Task", Resource: node.resource };
   if (node.comment) state.Comment = node.comment;
+  if (node.queryLanguage) state.QueryLanguage = node.queryLanguage;
   if (node.arguments !== undefined) state.Arguments = resolveTaskArgumentValue(node.arguments, slots);
   if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots);
   if (node.resultPath !== undefined) state.ResultPath = node.resultPath;
@@ -357,6 +432,7 @@ export function emitChoiceState(node: ChoiceNode, slots: SlotRegistry): AslChoic
   };
 
   if (node.comment) state.Comment = node.comment;
+  if (node.queryLanguage) state.QueryLanguage = node.queryLanguage;
   if (node.otherwise) state.Default = node.otherwise;
   return state;
 }
@@ -372,6 +448,7 @@ export function emitParallelState(node: ParallelNode, slots: SlotRegistry): AslP
   };
 
   if (node.comment) state.Comment = node.comment;
+  if (node.queryLanguage) state.QueryLanguage = node.queryLanguage;
   if (node.arguments !== undefined) state.Arguments = resolveTaskArgumentValue(node.arguments, slots);
   if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots);
 
@@ -409,6 +486,7 @@ export function emitMapState(node: MapNode, slots: SlotRegistry): AslMapState {
   };
 
   if (node.comment) state.Comment = node.comment;
+  if (node.queryLanguage) state.QueryLanguage = node.queryLanguage;
 
   if (node.items !== undefined) state.Items = resolveTaskArgumentValue(node.items, slots);
   if (node.itemsPath !== undefined) state.ItemsPath = node.itemsPath;
@@ -439,6 +517,20 @@ export function emitMapState(node: MapNode, slots: SlotRegistry): AslMapState {
   return state;
 }
 
+export function emitRawState(node: RawStateNode, slots: SlotRegistry): AslRawState {
+  const rendered = resolveUnknownValue(node.asl, slots) as AslRawState;
+  const out: AslRawState = {
+    ...(rendered as Record<string, unknown>),
+    Type: String((rendered as any)?.Type ?? "State"),
+  };
+
+  if (node.queryLanguage) {
+    out.QueryLanguage = node.queryLanguage;
+  }
+
+  return out;
+}
+
 export function emitStates(nodes: Array<StepNode | BranchStateNode>, slots: SlotRegistry): AslStates {
   const states: AslStates = {};
   for (const node of nodes) {
@@ -450,7 +542,9 @@ export function emitStates(nodes: Array<StepNode | BranchStateNode>, slots: Slot
           ? emitChoiceState(node, slots)
           : node.kind === "parallel"
             ? emitParallelState(node, slots)
-            : emitMapState(node, slots);
+            : node.kind === "map"
+              ? emitMapState(node, slots)
+              : emitRawState(node, slots);
   }
   return states;
 }

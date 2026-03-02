@@ -1,3 +1,9 @@
+#!/usr/bin/env node
+
+// Enable loading user-provided TypeScript entrypoints via dynamic `import()`.
+import 'tsx';
+
+import { existsSync, statSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,7 +20,46 @@ type CliOptions = {
   outDir: string;
   graph: boolean;
   graphDir?: string;
+  inputWasDefault: boolean;
+  slotsWasDefault: boolean;
 };
+
+
+function printHelp() {
+  console.log(`aslx build
+
+Build ASL JSON definition(s) from exported stateMachine(...) builders.
+
+Aliases:
+  build-machine
+
+Usage:
+  aslx build [entry] [--slots <slots.json>] [--out-dir <dir>] [--graph] [--graph-dir <dir>]
+  aslx build-machine [entry] [--slots <slots.json>] [--out-dir <dir>] [--graph] [--graph-dir <dir>]
+  aslx-build-machine [entry] [--slots <slots.json>] [--out-dir <dir>] [--graph] [--graph-dir <dir>]
+
+Defaults:
+  entry      machines/index.ts
+  --slots    build/slots.json
+  --out-dir  build/machines
+
+Options:
+  --slots <file>     Path to slots registry JSON (from "aslx compile").
+  --out-dir <dir>    Output directory for generated machine definition JSON.
+  --graph            Also emit Mermaid graphs (*.mmd).
+  --graph-dir <dir>  Graph output directory (implies --graph).
+  -h, --help         Show this help
+
+Preflight checks:
+  - If you omit --slots, the default is build/slots.json.
+  - If that file doesn't exist, the CLI will suggest running "aslx compile" first.
+
+Examples:
+  aslx compile machines/index.ts --out build/slots.json
+  aslx validate machines/index.ts
+  aslx build machines/index.ts --slots build/slots.json --out-dir build/machines --graph
+`);
+}
 
 function parseArgs(argv: string[]): CliOptions {
   const args = [...argv];
@@ -22,6 +67,9 @@ function parseArgs(argv: string[]): CliOptions {
   let input = 'machines/index.ts';
   let slotsPath = 'build/slots.json';
   let outDir = 'build/machines';
+
+  let inputWasDefault = true;
+  let slotsWasDefault = true;
 
   let graph = false;
   let graphDir: string | undefined;
@@ -36,6 +84,7 @@ function parseArgs(argv: string[]): CliOptions {
       const next = args.shift();
       if (!next) throw new Error('Missing value for --slots');
       slotsPath = next;
+      slotsWasDefault = false;
       continue;
     }
 
@@ -59,14 +108,30 @@ function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (current.startsWith('-')) {
+      throw new Error(`Unknown option: ${current}`);
+    }
+
     positional.push(current);
   }
 
   if (positional.length > 0) {
+    if (positional.length > 1) {
+      throw new Error(`Too many positional arguments: ${positional.join(' ')}`);
+    }
     input = positional[0]!;
+    inputWasDefault = false;
   }
 
-  return { input, slotsPath, outDir, graph, graphDir };
+  return { input, slotsPath, outDir, graph, graphDir, inputWasDefault, slotsWasDefault };
+}
+
+function isFile(p: string): boolean {
+  try {
+    return existsSync(p) && statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function toFileStem(value: string): string {
@@ -95,7 +160,45 @@ function collectStateMachineBuilders(mod: Record<string, unknown>): Array<[strin
 }
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    printHelp();
+    return;
+  }
+
+  const options = parseArgs(argv);
+
+  // --- Preflight checks (better UX for the common "aslx build" flow) ---
+  const resolvedInput = path.resolve(process.cwd(), options.input);
+  if (!isFile(resolvedInput)) {
+    console.error(`Entry file not found: ${options.input}`);
+    if (options.inputWasDefault) {
+      console.error(`This command defaults to "machines/index.ts" if you don't pass an entry file.`);
+      console.error(`Create ${options.input} or pass a different entry file.`);
+    }
+    console.error(`Run: aslx build --help`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const resolvedSlots = path.resolve(process.cwd(), options.slotsPath);
+  if (!isFile(resolvedSlots)) {
+    console.error(`Slots registry not found: ${options.slotsPath}`);
+    if (options.slotsWasDefault) {
+      console.error(`It looks like you haven't compiled slots yet.`);
+      console.error(`Run this first:`);
+      console.error(`  aslx compile ${options.input} --out ${options.slotsPath}`);
+      console.error(`Then re-run:`);
+      console.error(`  aslx build ${options.input} --slots ${options.slotsPath} --out-dir ${options.outDir}`);
+    } else {
+      console.error(`Make sure you compiled slots into that file.`);
+      console.error(`Example:`);
+      console.error(`  aslx compile ${options.input} --out ${options.slotsPath}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
   const slots = await loadSlots(options.slotsPath);
   const mod = await loadModule(options.input);
   const builders = collectStateMachineBuilders(mod);

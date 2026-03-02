@@ -1,5 +1,7 @@
 import type { RetryPolicy, TaskArgumentValue, TaskNode } from "./task";
 import type { PassAssignMap, PassAssignValue, PassContent, StepName } from "./steps";
+import type { StateMachineQueryLanguage } from "./state-machine";
+import type { RawStateNode } from "./raw-state";
 import type { SubflowNode } from "./subflow";
 import { SubflowBuilder, subflow } from "./subflow";
 import type { PassNode } from "./steps";
@@ -21,6 +23,8 @@ export type ParallelCatchPolicy = {
 export type ParallelNode = {
   kind: "parallel";
   name: string;
+  /** Optional state-level query language override (emits `QueryLanguage` in the state object). */
+  queryLanguage?: StateMachineQueryLanguage;
   branches: SubflowNode[];
   comment?: string;
   /** JSONata-only */
@@ -104,6 +108,12 @@ function cloneSubflowNode(node: SubflowNode): SubflowNode {
     states: node.states.map((state) => {
       if (state.kind === "pass") return clonePassNode(state);
       if (state.kind === "task") return cloneTaskNode(state);
+      if (state.kind === "raw") {
+        return {
+          ...state,
+          asl: structuredClone((state as RawStateNode).asl),
+        } as RawStateNode;
+      }
       return cloneChoiceNode(state);
     }),
   };
@@ -162,6 +172,11 @@ export class ParallelBuilder {
 
   comment(value: string): this {
     this.node.comment = value;
+    return this;
+  }
+
+  queryLanguage(value: StateMachineQueryLanguage): this {
+    this.node.queryLanguage = value;
     return this;
   }
 
@@ -276,6 +291,7 @@ export class ParallelBuilder {
     return {
       kind: "parallel",
       name: this.node.name,
+      queryLanguage: this.node.queryLanguage,
       branches: this.node.branches.map(cloneSubflowNode),
       comment: this.node.comment,
       arguments: cloneTaskArgumentValue(this.node.arguments),

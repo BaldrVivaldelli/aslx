@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        # NOTE: We intentionally use `npm install` instead of `npm ci` because
+        # this repo does not commit a lockfile by default.
+        # If you add `package-lock.json`, prefer switching back to `npm ci`.
+        run: npm install
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm run test
+
+      - name: Build dist
+        run: npm run build
+
+      - name: npm pack (dry-run)
+        run: npm pack --dry-run

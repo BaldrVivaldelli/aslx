@@ -1,6 +1,6 @@
 {
   "name": "aslx",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "TypeScript (SWC) -> JSONata compiler for embedding JSONata in Step Functions authoring workflows.",
   "keywords": [

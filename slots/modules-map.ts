@@ -1,4 +1,4 @@
-import { slot, $states, merge } from "../dsl/jsonata";
+import { slot, $states, merge, count, exists } from "../dsl/jsonata";
 import type { JsonObject, StatesInput } from "./types";
 
 /** ---- Map business example: Validate modules ---- */

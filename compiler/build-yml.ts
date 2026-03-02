@@ -109,19 +109,12 @@ function listJsonFiles(dir: string): string[] {
     .map((f) => path.join(dir, f));
 }
 
-function stableYamlStringify(obj: unknown): string {
-  const doc = new YAML.Document(obj);
-
-  // YAML output preferences (MVP):
-  // - keep it readable
-  // - deterministic enough for golden tests later
-  doc.options.indent = 2;
-  doc.options.lineWidth = 0; // do not auto-wrap long lines
-  doc.options.defaultStringType = 'QUOTE_DOUBLE';
-
-  // NOTE: We'll later add special handling for JSONata `{% ... %}`
-  // (block scalars, etc.) in Paso 2/3.
-  return String(doc);
+function stableYamlStringify(definition: unknown): string {
+  return YAML.stringify(definition, {
+    indent: 2,
+    lineWidth: 0, // no wrap
+    defaultStringType: "QUOTE_DOUBLE",
+  })
 }
 
 async function main() {

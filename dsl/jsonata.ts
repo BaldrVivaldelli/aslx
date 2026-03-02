@@ -170,7 +170,9 @@ export function udf<T extends (...args: any[]) => any>(fn: T): T {
  *
  * If you don't want to expose them, you can remove this section.
  */
-export const exists = (_x: any): boolean => true as any;
+export function exists<T>(v: T | null | undefined): v is T {
+  return v !== undefined && v !== null;
+}
 export const keys = (_x: any): string[] => [] as any;
 export const lookup = (_obj: any, _k: any): any => undefined as any;
 export const merge = (_xs: any[]): any => undefined as any;

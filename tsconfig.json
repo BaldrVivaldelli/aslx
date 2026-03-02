@@ -11,5 +11,12 @@
     "verbatimModuleSyntax": true
   },
   "include": ["**/*.ts"],
-  "exclude": ["dist", "node_modules", "build"]
+  "exclude": [
+    "dist",
+    "node_modules",
+    "slots/**",
+    "example/**",
+    "testdata/**",
+    "build/**"
+  ]
 }

@@ -4,7 +4,6 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 type Command = {
   /** Primary name shown in `aslx --help`. */
@@ -113,26 +112,25 @@ function resolveCommand(name: string): Command | null {
 }
 
 function runSubcommand(cmd: Command, args: string[]): number {
-  const require = createRequire(__filename);
-  const here = path.dirname(__filename);
+  const here = __dirname; // ✅ CJS
   const target = path.join(here, cmd.file);
 
   if (!fs.existsSync(target)) {
     console.error(`Cannot find subcommand implementation: ${target}`);
-    console.error(`This usually means the package was not built correctly (missing dist/cli files).`);
+    console.error(
+      `This usually means the package was not built correctly (missing dist/cli files).`
+    );
     return 1;
   }
 
   const result = spawnSync(process.execPath, [target, ...args], {
-    stdio: 'inherit',
+    stdio: "inherit",
     env: process.env,
   });
 
-  // `status` is null if the process was terminated by a signal.
-  if (typeof result.status === 'number') return result.status;
+  if (typeof result.status === "number") return result.status;
   return 1;
 }
-
 function main() {
   const argv = process.argv.slice(2);
 

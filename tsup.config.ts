@@ -10,7 +10,7 @@ export default defineConfig([
     outDir: "dist",
     target: "node20",
     platform: "node",
-    bundle: false,
+    bundle: true,
     splitting: false,
     outExtension({ format }) {
       return format === "cjs" ? { js: ".cjs" } : { js: ".js" };

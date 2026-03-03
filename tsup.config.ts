@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig([
-  // Library
+  // Library (puede quedar como la tengas)
   {
     entry: ["index.ts"],
     format: ["esm", "cjs"],
@@ -10,35 +10,42 @@ export default defineConfig([
     outDir: "dist",
     target: "node20",
     platform: "node",
-    sourcemap: false,
-    splitting: false,
-    treeshake: true,
     bundle: false,
+    splitting: false,
     outExtension({ format }) {
       return format === "cjs" ? { js: ".cjs" } : { js: ".js" };
     },
   },
 
-  // CLI
+  // CLI (FIX)
   {
     entry: {
-      "cli/aslx": "compiler/aslx.ts",
-      "cli/compile-jsonata": "compiler/compile-jsonata.ts",
-      "cli/build-machine": "compiler/build-machine.ts",
-      "cli/validate-machine": "compiler/validate-machine.ts",
-      "cli/build-yml": "compiler/build-yml.ts",
+      aslx: "compiler/aslx.ts",
+      "compile-jsonata": "compiler/compile-jsonata.ts",
+      "build-machine": "compiler/build-machine.ts",
+      "validate-machine": "compiler/validate-machine.ts",
+      "build-yml": "compiler/build-yml.ts",
     },
     format: ["cjs"],
     dts: false,
+    sourcemap: false,
     clean: false,
-    outDir: "dist",
+    outDir: "dist/cli",
     target: "node20",
     platform: "node",
-    sourcemap: false,
 
-    bundle: false, 
-    splitting: false,
+    bundle: true,        // ✅ mete module-graph adentro
+    splitting: false,    // ✅ evita chunks faltantes como ./module-graph
     treeshake: false,
+
+    // externalizá solo deps externas / pesadas (no tu código)
+    external: [
+      /^node:.+$/,
+      /^typescript(\/.*)?$/,
+      "@swc/core",
+      "tsx",
+      "yaml",
+    ],
 
     outExtension() {
       return { js: ".cjs" };

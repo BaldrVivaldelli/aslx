@@ -5,9 +5,7 @@ import 'tsx';
 
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
-import { isStateMachineBuilder, StateMachineBuilder } from '../dsl/state-machine';
 import { normalizeStateMachine } from './normalize-state-machine.js';
 import { validateStateMachine } from './validate-state-machine.js';
 import { loadUserModule } from './load-module.js';

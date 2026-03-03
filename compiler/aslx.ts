@@ -20,25 +20,25 @@ const COMMANDS: Command[] = [
   {
     name: 'compile',
     description: 'Compile TypeScript slots into JSONata registry (slots.json + slots.map.json).',
-    file: 'compile-jsonata.js',
+    file: 'compile-jsonata',
     aliases: ['compile-jsonata', 'slots'],
   },
   {
     name: 'build',
     description: 'Build ASL JSON definition(s) from exported stateMachine(...) builders.',
-    file: 'build-machine.js',
+    file: 'build-machine',
     aliases: ['build-machine'],
   },
   {
     name: 'validate',
     description: 'Validate exported stateMachine(...) builders (graph + semantics).',
-    file: 'validate-machine.js',
+    file: 'validate-machine',
     aliases: ['validate-machine', 'check'],
   },
   {
     name: 'yml',
     description: 'Convert built .json machine definitions to .yml.',
-    file: 'build-yml.js',
+    file: 'build-yml',
     aliases: ['build-yml', 'yaml'],
   },
 ];
@@ -112,14 +112,19 @@ function resolveCommand(name: string): Command | null {
 }
 
 function runSubcommand(cmd: Command, args: string[]): number {
-  const here = __dirname; // ✅ CJS
-  const target = path.join(here, cmd.file);
+  const here = __dirname;
 
-  if (!fs.existsSync(target)) {
-    console.error(`Cannot find subcommand implementation: ${target}`);
-    console.error(
-      `This usually means the package was not built correctly (missing dist/cli files).`
-    );
+  const candidates = [
+    path.join(here, `${cmd.file}.cjs`),
+    path.join(here, `${cmd.file}.js`),
+    path.join(here, cmd.file), // fallback si alguien pone extensión
+  ];
+
+  const target = candidates.find(fs.existsSync);
+
+  if (!target) {
+    console.error(`Cannot find subcommand implementation. Tried:\n  ${candidates.join("\n  ")}`);
+    console.error(`This usually means the package was not built correctly (missing dist/cli files).`);
     return 1;
   }
 
@@ -128,9 +133,9 @@ function runSubcommand(cmd: Command, args: string[]): number {
     env: process.env,
   });
 
-  if (typeof result.status === "number") return result.status;
-  return 1;
+  return typeof result.status === "number" ? result.status : 1;
 }
+
 function main() {
   const argv = process.argv.slice(2);
 

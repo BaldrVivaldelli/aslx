@@ -8,9 +8,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { StateMachineBuilder } from '../dsl/state-machine';
-import { buildStateMachineDefinition } from './build-state-machine-definition';
-import { renderMermaid } from './graph';
+import { isStateMachineBuilder, StateMachineBuilder } from '../dsl/state-machine';
+import { buildStateMachineDefinition } from './build-state-machine-definition.js';
+import { renderMermaid } from './graph.js';
+import { loadUserModule } from './load-module.js';
 
 type SlotRegistry = Record<string, string>;
 
@@ -20,6 +21,7 @@ type CliOptions = {
   outDir: string;
   graph: boolean;
   graphDir?: string;
+  keepSlots: boolean;
   inputWasDefault: boolean;
   slotsWasDefault: boolean;
 };
@@ -34,9 +36,9 @@ Aliases:
   build-machine
 
 Usage:
-  aslx build [entry] [--slots <slots.json>] [--out-dir <dir>] [--graph] [--graph-dir <dir>]
-  aslx build-machine [entry] [--slots <slots.json>] [--out-dir <dir>] [--graph] [--graph-dir <dir>]
-  aslx-build-machine [entry] [--slots <slots.json>] [--out-dir <dir>] [--graph] [--graph-dir <dir>]
+  aslx build [entry] [--slots <slots.json>] [--out-dir <dir>] [--graph] [--graph-dir <dir>] [--keep-slots]
+  aslx build-machine [entry] [--slots <slots.json>] [--out-dir <dir>] [--graph] [--graph-dir <dir>] [--keep-slots]
+  aslx-build-machine [entry] [--slots <slots.json>] [--out-dir <dir>] [--graph] [--graph-dir <dir>] [--keep-slots]
 
 Defaults:
   entry      machines/index.ts
@@ -48,6 +50,7 @@ Options:
   --out-dir <dir>    Output directory for generated machine definition JSON.
   --graph            Also emit Mermaid graphs (*.mmd).
   --graph-dir <dir>  Graph output directory (implies --graph).
+  --keep-slots        Preserve { __kind, __slotId } markers instead of inlining JSONata templates.
   -h, --help         Show this help
 
 Preflight checks:
@@ -73,6 +76,7 @@ function parseArgs(argv: string[]): CliOptions {
 
   let graph = false;
   let graphDir: string | undefined;
+  let keepSlots = false;
 
   const positional: string[] = [];
 
@@ -108,6 +112,11 @@ function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (current === '--keep-slots') {
+      keepSlots = true;
+      continue;
+    }
+
     if (current.startsWith('-')) {
       throw new Error(`Unknown option: ${current}`);
     }
@@ -123,7 +132,7 @@ function parseArgs(argv: string[]): CliOptions {
     inputWasDefault = false;
   }
 
-  return { input, slotsPath, outDir, graph, graphDir, inputWasDefault, slotsWasDefault };
+  return { input, slotsPath, outDir, graph, graphDir, keepSlots, inputWasDefault, slotsWasDefault };
 }
 
 function isFile(p: string): boolean {
@@ -142,11 +151,7 @@ function toFileStem(value: string): string {
     .toLowerCase();
 }
 
-async function loadModule(modulePath: string): Promise<Record<string, unknown>> {
-  const resolved = path.resolve(process.cwd(), modulePath);
-  const url = pathToFileURL(resolved).href;
-  return import(url);
-}
+
 
 async function loadSlots(slotsPath: string): Promise<SlotRegistry> {
   const resolved = path.resolve(process.cwd(), slotsPath);
@@ -154,9 +159,11 @@ async function loadSlots(slotsPath: string): Promise<SlotRegistry> {
   return JSON.parse(raw) as SlotRegistry;
 }
 
-function collectStateMachineBuilders(mod: Record<string, unknown>): Array<[string, StateMachineBuilder]> {
-  return Object.entries(mod)
-    .filter((entry): entry is [string, StateMachineBuilder] => entry[1] instanceof StateMachineBuilder);
+
+export function collectStateMachineBuilders(mod: Record<string, unknown>): Array<[string, StateMachineBuilder]> {
+  return Object.entries(mod).filter(
+    (entry): entry is [string, StateMachineBuilder] => isStateMachineBuilder(entry[1]),
+  );
 }
 
 async function main() {
@@ -200,7 +207,15 @@ async function main() {
   }
 
   const slots = await loadSlots(options.slotsPath);
-  const mod = await loadModule(options.input);
+  let mod: any;
+
+  try {
+    mod = await loadUserModule(options.input);
+  } catch (err) {
+    console.error("IMPORT ERROR:");
+    console.error(err);
+    process.exit(1);
+  }
   const builders = collectStateMachineBuilders(mod);
 
   if (builders.length === 0) {
@@ -216,7 +231,7 @@ async function main() {
   const written: string[] = [];
 
   for (const [exportName, builder] of builders) {
-    const definition = buildStateMachineDefinition(builder.build(), slots);
+    const definition = buildStateMachineDefinition(builder.build(), slots, !options.keepSlots);
     const filename = `${toFileStem(exportName)}.json`;
     const filePath = path.join(outDir, filename);
     await writeFile(filePath, `${JSON.stringify(definition, null, 2)}\n`, 'utf8');

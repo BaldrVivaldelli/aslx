@@ -4,8 +4,7 @@ import type { MapNode } from "../dsl/map";
 import type { RawStateNode } from "../dsl/raw-state";
 import type { PassNode } from "../dsl/steps";
 import type { TaskNode } from "../dsl/task";
-import type { NormalizedStateMachine } from "./normalize-state-machine";
-import { normalizeStateMachine } from "./normalize-state-machine";
+import { normalizeStateMachine, type NormalizedStateMachine } from "./normalize-state-machine.js";
 
 export type ValidationSeverity = "error";
 

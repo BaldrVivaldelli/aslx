@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseSync } from "@swc/core";
-import { buildModuleGraph } from "./module-graph";
+import { buildModuleGraph } from "./module-graph.js";
 
 /** ---------------- IR ---------------- */
 type KeyIR = { k: "Str"; v: string } | { k: "Expr"; e: ExprIR };

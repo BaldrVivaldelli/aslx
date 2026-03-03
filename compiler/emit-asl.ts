@@ -7,7 +7,7 @@ import type { StateMachineNode, StateMachineQueryLanguage, StepNode } from "../d
 import type { RawStateNode } from "../dsl/raw-state";
 import type { PassAssignMap, PassContent, PassNode } from "../dsl/steps";
 import type { CatchPolicy, TaskArgumentValue, TaskNode } from "../dsl/task";
-import type { AslStateMachineDefinition } from "./asl-types";
+import type { AslStateMachineDefinition } from "./asl-types.js";
 
 export type SlotRegistry = Record<string, string>;
 
@@ -121,19 +121,21 @@ export type AslStates = Record<string, AslState>;
 
 type BranchStateNode = PassNode | TaskNode | ChoiceNode | RawStateNode;
 
-function resolveUnknownValue(value: unknown, slots: SlotRegistry): unknown {
+function resolveUnknownValue(value: unknown, slots: SlotRegistry, inlineSlots: boolean): unknown {
+  if (!inlineSlots) return value;
+
   if (isJsonataSlot(value as any)) {
     return resolveSlot(value as JsonataSlot, slots);
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => resolveUnknownValue(item, slots));
+    return value.map((item) => resolveUnknownValue(item, slots, inlineSlots));
   }
 
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = resolveUnknownValue(child, slots);
+      out[key] = resolveUnknownValue(child, slots, inlineSlots);
     }
     return out;
   }
@@ -194,34 +196,41 @@ function resolveSlot(slot: JsonataSlot, slots: SlotRegistry): string {
   return renderJsonataTemplate(stripJsonataFence(resolveCompiledSlotExpression(slotId, slots)));
 }
 
-function resolveContentValue(value: PassContent, slots: SlotRegistry): unknown {
+function resolveContentValue(value: PassContent, slots: SlotRegistry, inlineSlots: boolean): unknown {
+  if (!inlineSlots) return value;
   if (isJsonataSlot(value)) return resolveSlot(value, slots);
-  return value;
+  return resolveUnknownValue(value as unknown, slots, inlineSlots);
 }
 
-function resolveAssign(assign: PassAssignMap | undefined, slots: SlotRegistry): Record<string, unknown> | undefined {
+function resolveAssign(
+  assign: PassAssignMap | undefined,
+  slots: SlotRegistry,
+  inlineSlots: boolean,
+): Record<string, unknown> | undefined {
   if (!assign) return undefined;
 
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(assign)) {
-    out[key] = resolveContentValue(value, slots);
+    out[key] = resolveContentValue(value, slots, inlineSlots);
   }
   return out;
 }
 
-function resolveTaskArgumentValue(value: TaskArgumentValue, slots: SlotRegistry): unknown {
+function resolveTaskArgumentValue(value: TaskArgumentValue, slots: SlotRegistry, inlineSlots: boolean): unknown {
+  if (!inlineSlots) return value;
+
   if (isJsonataSlot(value)) {
     return resolveSlot(value, slots);
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => resolveTaskArgumentValue(item, slots));
+    return value.map((item) => resolveTaskArgumentValue(item, slots, inlineSlots));
   }
 
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
-      out[key] = resolveTaskArgumentValue(child as TaskArgumentValue, slots);
+      out[key] = resolveTaskArgumentValue(child as TaskArgumentValue, slots, inlineSlots);
     }
     return out;
   }
@@ -232,6 +241,7 @@ function resolveTaskArgumentValue(value: TaskArgumentValue, slots: SlotRegistry)
 function emitCatchPolicy(
   policy: CatchPolicy | ParallelCatchPolicy | MapCatchPolicy,
   slots: SlotRegistry,
+  inlineSlots: boolean,
 ): AslTaskCatch {
   const out: AslTaskCatch = {
     ErrorEquals: [...policy.ErrorEquals],
@@ -241,10 +251,10 @@ function emitCatchPolicy(
   if (policy.ResultPath) out.ResultPath = policy.ResultPath;
 
   if (policy.Output !== undefined) {
-    out.Output = resolveContentValue(policy.Output as PassContent, slots);
+    out.Output = resolveContentValue(policy.Output as PassContent, slots, inlineSlots);
   }
 
-  const assign = resolveAssign((policy as any).Assign as PassAssignMap | undefined, slots);
+  const assign = resolveAssign((policy as any).Assign as PassAssignMap | undefined, slots, inlineSlots);
   if (assign && Object.keys(assign).length > 0) out.Assign = assign;
 
   return out;
@@ -368,22 +378,26 @@ function materializeBranchStates(states: BranchStateNode[]): BranchStateNode[] {
   return expanded;
 }
 
-function emitBranchDefinition(branch: import("../dsl/subflow").SubflowNode, slots: SlotRegistry): AslBranchDefinition {
+function emitBranchDefinition(
+  branch: import("../dsl/subflow").SubflowNode,
+  slots: SlotRegistry,
+  inlineSlots: boolean,
+): AslBranchDefinition {
   const states = materializeBranchStates(branch.states as BranchStateNode[]);
   return {
     StartAt: states[0]!.name,
-    States: emitStates(states, slots),
+    States: emitStates(states, slots, inlineSlots),
   };
 }
 
-export function emitPassState(node: PassNode, slots: SlotRegistry): AslPassState {
+export function emitPassState(node: PassNode, slots: SlotRegistry, inlineSlots: boolean = true): AslPassState {
   const state: AslPassState = { Type: "Pass" };
 
   if (node.comment) state.Comment = node.comment;
   if (node.queryLanguage) state.QueryLanguage = node.queryLanguage;
-  if (node.content !== undefined) state.Output = resolveContentValue(node.content, slots);
+  if (node.content !== undefined) state.Output = resolveContentValue(node.content, slots, inlineSlots);
 
-  const assign = resolveAssign(node.assign, slots);
+  const assign = resolveAssign(node.assign, slots, inlineSlots);
   if (assign && Object.keys(assign).length > 0) state.Assign = assign;
 
   if (node.next) state.Next = node.next;
@@ -392,16 +406,16 @@ export function emitPassState(node: PassNode, slots: SlotRegistry): AslPassState
   return state;
 }
 
-export function emitTaskState(node: TaskNode, slots: SlotRegistry): AslTaskState {
+export function emitTaskState(node: TaskNode, slots: SlotRegistry, inlineSlots: boolean = true): AslTaskState {
   const state: AslTaskState = { Type: "Task", Resource: node.resource };
   if (node.comment) state.Comment = node.comment;
   if (node.queryLanguage) state.QueryLanguage = node.queryLanguage;
-  if (node.arguments !== undefined) state.Arguments = resolveTaskArgumentValue(node.arguments, slots);
-  if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots);
+  if (node.arguments !== undefined) state.Arguments = resolveTaskArgumentValue(node.arguments, slots, inlineSlots);
+  if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots, inlineSlots);
   if (node.resultPath !== undefined) state.ResultPath = node.resultPath;
-  if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots);
+  if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots, inlineSlots);
 
-  const assign = resolveAssign(node.assign, slots);
+  const assign = resolveAssign(node.assign, slots, inlineSlots);
   if (assign && Object.keys(assign).length > 0) state.Assign = assign;
   if (node.timeoutSeconds !== undefined) state.TimeoutSeconds = node.timeoutSeconds;
   if (node.heartbeatSeconds !== undefined) state.HeartbeatSeconds = node.heartbeatSeconds;
@@ -409,7 +423,7 @@ export function emitTaskState(node: TaskNode, slots: SlotRegistry): AslTaskState
     state.Retry = node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] }));
   }
   if (node.catch && node.catch.length > 0) {
-    state.Catch = node.catch.map((policy) => emitCatchPolicy(policy, slots));
+    state.Catch = node.catch.map((policy) => emitCatchPolicy(policy, slots, inlineSlots));
   }
   if (node.next) state.Next = node.next;
   else state.End = true;
@@ -432,38 +446,38 @@ export function emitChoiceState(node: ChoiceNode, slots: SlotRegistry): AslChoic
   return state;
 }
 
-export function emitParallelState(node: ParallelNode, slots: SlotRegistry): AslParallelState {
+export function emitParallelState(node: ParallelNode, slots: SlotRegistry, inlineSlots: boolean = true): AslParallelState {
   if (node.branches.length === 0) {
     throw new Error(`Parallel state ${node.name} must have at least one branch`);
   }
 
   const state: AslParallelState = {
     Type: "Parallel",
-    Branches: node.branches.map((branch) => emitBranchDefinition(branch, slots)),
+    Branches: node.branches.map((branch) => emitBranchDefinition(branch, slots, inlineSlots)),
   };
 
   if (node.comment) state.Comment = node.comment;
   if (node.queryLanguage) state.QueryLanguage = node.queryLanguage;
-  if (node.arguments !== undefined) state.Arguments = resolveTaskArgumentValue(node.arguments, slots);
-  if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots);
+  if (node.arguments !== undefined) state.Arguments = resolveTaskArgumentValue(node.arguments, slots, inlineSlots);
+  if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots, inlineSlots);
 
-  const assign = resolveAssign(node.assign, slots);
+  const assign = resolveAssign(node.assign, slots, inlineSlots);
   if (assign && Object.keys(assign).length > 0) state.Assign = assign;
 
-  if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots);
+  if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots, inlineSlots);
   if (node.resultPath !== undefined) state.ResultPath = node.resultPath;
 
   if (node.retry && node.retry.length > 0) {
     state.Retry = node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] }));
   }
 
-  if (node.catch && node.catch.length > 0) state.Catch = node.catch.map((policy) => emitCatchPolicy(policy, slots));
+  if (node.catch && node.catch.length > 0) state.Catch = node.catch.map((policy) => emitCatchPolicy(policy, slots, inlineSlots));
   if (node.next) state.Next = node.next;
   else state.End = true;
   return state;
 }
 
-export function emitMapState(node: MapNode, slots: SlotRegistry): AslMapState {
+export function emitMapState(node: MapNode, slots: SlotRegistry, inlineSlots: boolean = true): AslMapState {
   if (!node.itemProcessor || node.itemProcessor.states.length === 0) {
     throw new Error(`Map state ${node.name} must have a non-empty itemProcessor`);
   }
@@ -472,7 +486,7 @@ export function emitMapState(node: MapNode, slots: SlotRegistry): AslMapState {
   const itemProcessor: AslItemProcessorDefinition = {
     ProcessorConfig: { Mode: "INLINE" },
     StartAt: processorStates[0]!.name,
-    States: emitStates(processorStates, slots),
+    States: emitStates(processorStates, slots, inlineSlots),
   };
 
   const state: AslMapState = {
@@ -483,28 +497,30 @@ export function emitMapState(node: MapNode, slots: SlotRegistry): AslMapState {
   if (node.comment) state.Comment = node.comment;
   if (node.queryLanguage) state.QueryLanguage = node.queryLanguage;
 
-  if (node.items !== undefined) state.Items = resolveTaskArgumentValue(node.items, slots);
+  if (node.items !== undefined) state.Items = resolveTaskArgumentValue(node.items, slots, inlineSlots);
   if (node.itemsPath !== undefined) state.ItemsPath = node.itemsPath;
-  if (node.itemSelector !== undefined) state.ItemSelector = resolveTaskArgumentValue(node.itemSelector, slots);
+  if (node.itemSelector !== undefined) state.ItemSelector = resolveTaskArgumentValue(node.itemSelector, slots, inlineSlots);
   if (node.maxConcurrency !== undefined) {
-    state.MaxConcurrency = isJsonataSlot(node.maxConcurrency)
-      ? resolveSlot(node.maxConcurrency, slots)
-      : node.maxConcurrency;
+    if (isJsonataSlot(node.maxConcurrency)) {
+      state.MaxConcurrency = inlineSlots ? resolveSlot(node.maxConcurrency, slots) : node.maxConcurrency;
+    } else {
+      state.MaxConcurrency = node.maxConcurrency;
+    }
   }
 
-  if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots);
+  if (node.output !== undefined) state.Output = resolveContentValue(node.output, slots, inlineSlots);
 
-  const assign = resolveAssign(node.assign, slots);
+  const assign = resolveAssign(node.assign, slots, inlineSlots);
   if (assign && Object.keys(assign).length > 0) state.Assign = assign;
 
-  if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots);
+  if (node.resultSelector !== undefined) state.ResultSelector = resolveTaskArgumentValue(node.resultSelector, slots, inlineSlots);
   if (node.resultPath !== undefined) state.ResultPath = node.resultPath;
 
   if (node.retry && node.retry.length > 0) {
     state.Retry = node.retry.map((policy) => ({ ...policy, ErrorEquals: [...policy.ErrorEquals] }));
   }
 
-  if (node.catch && node.catch.length > 0) state.Catch = node.catch.map((policy) => emitCatchPolicy(policy, slots));
+  if (node.catch && node.catch.length > 0) state.Catch = node.catch.map((policy) => emitCatchPolicy(policy, slots, inlineSlots));
 
   if (node.next) state.Next = node.next;
   else state.End = true;
@@ -512,8 +528,8 @@ export function emitMapState(node: MapNode, slots: SlotRegistry): AslMapState {
   return state;
 }
 
-export function emitRawState(node: RawStateNode, slots: SlotRegistry): AslRawState {
-  const rendered = resolveUnknownValue(node.asl, slots) as AslRawState;
+export function emitRawState(node: RawStateNode, slots: SlotRegistry, inlineSlots: boolean = true): AslRawState {
+  const rendered = resolveUnknownValue(node.asl, slots, inlineSlots) as AslRawState;
   const out: AslRawState = {
     ...(rendered as Record<string, unknown>),
     Type: String((rendered as any)?.Type ?? "State"),
@@ -526,20 +542,20 @@ export function emitRawState(node: RawStateNode, slots: SlotRegistry): AslRawSta
   return out;
 }
 
-export function emitStates(nodes: Array<StepNode | BranchStateNode>, slots: SlotRegistry): AslStates {
+export function emitStates(nodes: Array<StepNode | BranchStateNode>, slots: SlotRegistry, inlineSlots: boolean = true): AslStates {
   const states: AslStates = {};
   for (const node of nodes) {
     states[node.name] = node.kind === "pass"
-      ? emitPassState(node, slots)
+      ? emitPassState(node, slots, inlineSlots)
       : node.kind === "task"
-        ? emitTaskState(node, slots)
+        ? emitTaskState(node, slots, inlineSlots)
         : node.kind === "choice"
           ? emitChoiceState(node, slots)
           : node.kind === "parallel"
-            ? emitParallelState(node, slots)
+            ? emitParallelState(node, slots, inlineSlots)
             : node.kind === "map"
-              ? emitMapState(node, slots)
-              : emitRawState(node, slots);
+              ? emitMapState(node, slots, inlineSlots)
+              : emitRawState(node, slots, inlineSlots);
   }
   return states;
 }
@@ -547,6 +563,7 @@ export function emitStates(nodes: Array<StepNode | BranchStateNode>, slots: Slot
 export function emitStateMachine(
   input: StepNode[] | StateMachineNode,
   slots: SlotRegistry,
+  inlineSlots: boolean = true,
 ): AslStateMachineDefinition {
   const nodes = Array.isArray(input) ? input : input.states;
 
@@ -562,6 +579,6 @@ export function emitStateMachine(
           ...(input.comment ? { Comment: input.comment } : {}),
         }),
     StartAt: nodes[0]!.name,
-    States: emitStates(nodes, slots),
+    States: emitStates(nodes, slots, inlineSlots),
   };
 }

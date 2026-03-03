@@ -7,9 +7,11 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { StateMachineBuilder } from '../dsl/state-machine';
-import { normalizeStateMachine } from './normalize-state-machine';
-import { validateStateMachine } from './validate-state-machine';
+import { isStateMachineBuilder, StateMachineBuilder } from '../dsl/state-machine';
+import { normalizeStateMachine } from './normalize-state-machine.js';
+import { validateStateMachine } from './validate-state-machine.js';
+import { loadUserModule } from './load-module.js';
+import { collectStateMachineBuilders } from './build-machine.js';
 
 type CliOptions = {
   input: string;
@@ -84,16 +86,8 @@ function isFile(p: string): boolean {
   }
 }
 
-async function loadModule(modulePath: string): Promise<Record<string, unknown>> {
-  const resolved = path.resolve(process.cwd(), modulePath);
-  const url = pathToFileURL(resolved).href;
-  return import(url);
-}
 
-function collectStateMachineBuilders(mod: Record<string, unknown>): Array<[string, StateMachineBuilder]> {
-  return Object.entries(mod)
-    .filter((entry): entry is [string, StateMachineBuilder] => entry[1] instanceof StateMachineBuilder);
-}
+
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -117,7 +111,15 @@ async function main() {
     return;
   }
 
-  const mod = await loadModule(options.input);
+  let mod: any;
+
+  try {
+    mod = await loadUserModule(options.input);
+  } catch (err) {
+    console.error("IMPORT ERROR:");
+    console.error(err);
+    process.exit(1);
+  }
   const builders = collectStateMachineBuilders(mod);
 
   if (builders.length === 0) {

@@ -287,9 +287,12 @@ function wireLinearGraph(states: StepNode[]): StepNode[] {
   return expanded;
 }
 
+
+const STATE_MACHINE_BUILDER_SYMBOL = Symbol.for("aslx.stateMachineBuilder");
 export class StateMachineBuilder {
   private readonly name: string;
   private readonly steps: StepLike[] = [];
+  [STATE_MACHINE_BUILDER_SYMBOL] = true;
   private metadata: {
     queryLanguage?: StateMachineQueryLanguage;
     comment?: string;
@@ -299,6 +302,7 @@ export class StateMachineBuilder {
     this.name = name;
   }
 
+  
   queryLanguage(value: StateMachineQueryLanguage): this {
     this.metadata.queryLanguage = value;
     return this;
@@ -351,4 +355,14 @@ export class StateMachineBuilder {
 
 export function stateMachine(name: string): StateMachineBuilder {
   return new StateMachineBuilder(name);
+}
+
+export function isStateMachineBuilder(
+  value: unknown,
+): value is StateMachineBuilder {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as any)[STATE_MACHINE_BUILDER_SYMBOL] === true
+  );
 }

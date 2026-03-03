@@ -1,4 +1,4 @@
-import type { AslStateMachineDefinition } from "./asl-types";
+import type { AslStateMachineDefinition } from "./asl-types.js";
 
 type MachineLike = {
   StartAt: string;

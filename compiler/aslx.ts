@@ -2,6 +2,7 @@
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -45,7 +46,9 @@ const COMMANDS: Command[] = [
 
 function getVersion(): string | null {
   try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
+    const require = createRequire(__filename);
+
+    const here = path.dirname(require.resolve("./aslx.cjs"));
     const pkgPath = path.resolve(here, '../../package.json');
     const raw = fs.readFileSync(pkgPath, 'utf8');
     const pkg = JSON.parse(raw) as { version?: string };
@@ -110,7 +113,8 @@ function resolveCommand(name: string): Command | null {
 }
 
 function runSubcommand(cmd: Command, args: string[]): number {
-  const here = path.dirname(fileURLToPath(import.meta.url));
+  const require = createRequire(__filename);
+  const here = path.dirname(__filename);
   const target = path.join(here, cmd.file);
 
   if (!fs.existsSync(target)) {

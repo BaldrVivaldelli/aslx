@@ -36,11 +36,11 @@
     "LICENSE"
   ],
   "bin": {
-    "aslx-compile-jsonata": "./dist/cli/compile-jsonata.js",
-    "aslx-build-machine": "./dist/cli/build-machine.js",
-    "aslx-validate-machine": "./dist/cli/validate-machine.js",
-    "aslx-build-yml": "./dist/cli/build-yml.js",
-    "aslx": "./dist/cli/aslx.js"
+    "aslx": "./dist/cli/aslx.cjs",
+    "aslx-compile-jsonata": "./dist/cli/compile-jsonata.cjs",
+    "aslx-build-machine": "./dist/cli/build-machine.cjs",
+    "aslx-validate-machine": "./dist/cli/validate-machine.cjs",
+    "aslx-build-yml": "./dist/cli/build-yml.cjs"
   },
   "scripts": {
     "format": "prettier -w .",
